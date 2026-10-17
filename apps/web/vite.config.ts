@@ -8,6 +8,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export default defineConfig({
+  base: process.env.NODE_ENV === 'production' ? '/Command-center-cc/' : '/',
   plugins: [react(), tailwindcss()],
   server: {
     port: 5173,
