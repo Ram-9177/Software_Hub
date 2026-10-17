@@ -1,0 +1,112 @@
+@import "tailwindcss";
+
+@variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: #f8fafc;
+    color: #0f172a;
+    -webkit-font-smoothing: antialiased;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+
+  html.dark body,
+  body.dark {
+    background-color: #0b0f17;
+    color: #f1f5f9;
+  }
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #334155;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+/* Glassmorphism & UI Utilities */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+}
+
+.dark .glass-panel {
+  background: rgba(15, 23, 42, 0.85);
+  border-color: rgba(51, 65, 85, 0.6);
+}
+
+.card-elevated {
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.04), 0 1px 2px -1px rgba(15, 23, 42, 0.04);
+  border-radius: 0.75rem;
+}
+
+.dark .card-elevated {
+  background-color: #111827;
+  border-color: #1f2937;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+}
+
+/* Global Dark Mode Automatic Inversion & Accessibility */
+html.dark,
+.dark {
+  color-scheme: dark;
+}
+
+.dark input:not([type="checkbox"]):not([type="radio"]),
+.dark select,
+.dark textarea {
+  background-color: #1e293b;
+  color: #f8fafc;
+  border-color: #334155;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #64748b;
+}
+
+.dark table thead th {
+  background-color: #0f172a;
+  color: #94a3b8;
+  border-color: #1e293b;
+}
+
+.dark table tbody tr {
+  border-color: #1e293b;
+}
+
+.dark table tbody tr:hover {
+  background-color: rgba(30, 41, 59, 0.4);
+}
+
+

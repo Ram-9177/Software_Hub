@@ -1,0 +1,22 @@
+{
+  "name": "command-center",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build:shared": "npm run build --workspace=@command-center/shared",
+    "build:api": "npm run build --workspace=@command-center/api",
+    "build:web": "npm run build --workspace=@command-center/web",
+    "build": "npm run build:shared && npm run build:api && npm run build:web",
+    "dev:api": "npm run dev --workspace=@command-center/api",
+    "dev:web": "npm run dev --workspace=@command-center/web",
+    "test": "npm run test --workspaces"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.8.2"
+  }
+}
