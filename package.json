@@ -11,6 +11,7 @@
     "build:api": "npm run build --workspace=@command-center/api",
     "build:web": "npm run build --workspace=@command-center/web",
     "build": "npm run build:shared && npm run build:api && npm run build:web",
+    "deploy:gh-pages": "npm run build:web && node scripts/deploy-ghpages.mjs",
     "dev:api": "npm run dev --workspace=@command-center/api",
     "dev:web": "npm run dev --workspace=@command-center/web",
     "test": "npm run test --workspaces"
