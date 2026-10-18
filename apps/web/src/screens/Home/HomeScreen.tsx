@@ -6,10 +6,10 @@ import { Button } from '../../components/ui/Button.js';
 import { Badge } from '../../components/ui/Badge.js';
 import { Card } from '../../components/ui/Card.js';
 import { useToast } from '../../components/ui/Toast.js';
-import { AttendanceTrendChart } from '../../components/charts/AttendanceTrendChart.js';
-import { TeamWorkloadBarChart } from '../../components/charts/TeamWorkloadBarChart.js';
-import { LevelProgressRing } from '../../components/charts/LevelProgressRing.js';
-import { WeeklyTasksBarChart } from '../../components/charts/WeeklyTasksBarChart.js';
+import { LineChart } from '../../components/ui/LineChart.js';
+import { BarChart } from '../../components/ui/BarChart.js';
+import { ProgressRing } from '../../components/ui/ProgressRing.js';
+import { EmptyState } from '../../components/ui/EmptyState.js';
 import { USER_ROLES } from '@command-center/shared';
 import { apiRequest } from '../../lib/api.js';
 import {
@@ -24,13 +24,13 @@ import {
   ShieldCheck,
   Users as UsersIcon,
   FileText,
+  Plus,
 } from 'lucide-react';
 
 export const HomeScreen: React.FC = () => {
   const { currentUser } = useAuth();
   const navigate = useNavigate();
   const { showToast } = useToast();
-  const [isCheckedIn, setIsCheckedIn] = React.useState(false);
   const [isCheckingIn, setIsCheckingIn] = React.useState(false);
 
   // 1. Live users query
@@ -47,7 +47,7 @@ export const HomeScreen: React.FC = () => {
     enabled: !!currentUser,
   });
 
-  // 3. Admin summary query (Section 1: 5 Admin limit)
+  // 3. Admin summary query
   const { data: adminSummary } = useQuery({
     queryKey: ['admin-summary'],
     queryFn: () => apiRequest<any>('/users/admins/summary').catch(() => null),
@@ -62,20 +62,20 @@ export const HomeScreen: React.FC = () => {
   });
 
   // 5. Today's attendance
-  const { data: todayAttendance } = useQuery({
+  const { data: todayAttendance, refetch: refetchAttendance } = useQuery({
     queryKey: ['attendance-today'],
     queryFn: () => apiRequest<any>('/attendance/today').catch(() => null),
     enabled: !!currentUser,
   });
 
-  // 6. Leave requests
-  const { data: leaveRequests = [] } = useQuery({
-    queryKey: ['attendance-leave'],
-    queryFn: () => apiRequest<any[]>('/attendance/leave').catch(() => []),
+  // 6. User's personal attendance register
+  const { data: myRegister } = useQuery({
+    queryKey: ['my-register', currentUser?.id],
+    queryFn: () => apiRequest<any>(`/attendance/register?userId=${currentUser?.id}`).catch(() => null),
     enabled: !!currentUser,
   });
 
-  // Aggregate member calculations
+  // Calculations
   const coreTeamMembers = useMemo(() => {
     return users.filter((u: any) => u.role === USER_ROLES.PAID_INTERN);
   }, [users]);
@@ -96,43 +96,36 @@ export const HomeScreen: React.FC = () => {
     () => allParts.filter((p: any) => p.status === 'in_review').length,
     [allParts]
   );
-  const inProgressPartsCount = useMemo(
-    () => allParts.filter((p: any) => p.status === 'in_progress').length,
-    [allParts]
-  );
-  const todoPartsCount = useMemo(
-    () => allParts.filter((p: any) => p.status === 'to_do').length,
-    [allParts]
-  );
   const overduePartsCount = useMemo(
     () => allParts.filter((p: any) => p.status === 'overdue').length,
     [allParts]
   );
 
-  const pendingLeavesCount = useMemo(
-    () => leaveRequests.filter((l: any) => l.status === 'pending').length,
-    [leaveRequests]
-  );
-
-  const pendingApprovalsCount = inReviewPartsCount + pendingLeavesCount;
-
-  // Real attendance calculation
   const averageAttendancePct = useMemo(() => {
-    const activeWithAttendance = users.filter((u: any) => u.attendancePercentage !== null && u.attendancePercentage !== undefined);
-    if (activeWithAttendance.length === 0) return 92;
-    const sum = activeWithAttendance.reduce((acc: number, u: any) => acc + (u.attendancePercentage || 0), 0);
-    return Math.round(sum / activeWithAttendance.length);
+    const activeWithAtt = users.filter(
+      (u: any) => u.attendancePercentage !== null && u.attendancePercentage !== undefined
+    );
+    if (activeWithAtt.length === 0) return 0;
+    const sum = activeWithAtt.reduce((acc: number, u: any) => acc + Number(u.attendancePercentage), 0);
+    return Math.round(sum / activeWithAtt.length);
   }, [users]);
+
+  const myTodayRecord = useMemo(() => {
+    if (!todayAttendance?.records) return null;
+    return todayAttendance.records.find((r: any) => r.userId === currentUser?.id);
+  }, [todayAttendance, currentUser]);
+
+  const isCheckedIn = Boolean(myTodayRecord?.checkInTime);
 
   const handleCheckIn = async () => {
     setIsCheckingIn(true);
     try {
       await apiRequest('/attendance/check-in', { method: 'POST' });
-      setIsCheckedIn(true);
+      await refetchAttendance();
       showToast({
         type: 'success',
         title: 'Checked in successfully',
-        message: 'Your attendance has been recorded.',
+        message: 'Your attendance has been recorded for today.',
       });
     } catch (err: any) {
       showToast({
@@ -145,40 +138,59 @@ export const HomeScreen: React.FC = () => {
     }
   };
 
+  const handleCheckOut = async () => {
+    setIsCheckingIn(true);
+    try {
+      const res = await apiRequest('/attendance/check-out', { method: 'POST' });
+      await refetchAttendance();
+      showToast({
+        type: 'success',
+        title: 'Checked out successfully',
+        message: res.message || 'Your shift end has been logged.',
+      });
+    } catch (err: any) {
+      showToast({
+        type: 'error',
+        title: 'Check-out failed',
+        message: err.message,
+      });
+    } finally {
+      setIsCheckingIn(false);
+    }
+  };
+
   if (!currentUser) return null;
 
+  // Workload bar data from real core team members
+  const workloadData = coreTeamMembers.map((m: any) => ({
+    label: m.name.split(' ')[0],
+    value: m.totalTasksAssigned || 0,
+    secondaryValue: m.tasksCompleted || 0,
+  }));
+
   // ==========================================
-  // 1. ADMIN DASHBOARD (Sri Ram)
+  // 1. ADMIN DASHBOARD
   // ==========================================
   if (currentUser.role === USER_ROLES.ADMIN) {
-    const attendanceHistory = [
-      { week: 'W1', percentage: 91 },
-      { week: 'W2', percentage: 93 },
-      { week: 'W3', percentage: 90 },
-      { week: 'W4', percentage: 94 },
-      { week: 'W5', percentage: 92 },
-      { week: 'W6', percentage: 95 },
-      { week: 'W7', percentage: 93 },
-      { week: 'W8', percentage: 95 },
-    ];
-
     return (
       <div className="space-y-6 max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-[11px] font-bold tracking-wider uppercase text-blue-600">
-                OFFICIAL ADMINISTRATION
+              <span className="text-[11px] font-bold tracking-wider uppercase text-blue-600 dark:text-blue-400">
+                CENTRAL OFFICE ADMINISTRATION
               </span>
-              <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full">
-                Production Ready
+              <span className="text-[10px] bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 font-bold px-2 py-0.5 rounded-full">
+                Live Operations
               </span>
             </div>
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight">
-              Software Hub 2.0 Command Center
+            <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+              Command Center
             </h1>
-            <p className="text-xs text-slate-500 mt-0.5">Primary Administrator: Sri Ram · Equal Access: Sheshi (Co-Admin)</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Admin: {currentUser.name} • {adminSummary?.activeAdminsCount ?? 1} of 5 Admin Positions Allocated
+            </p>
           </div>
           <div className="flex items-center gap-2.5">
             <Button
@@ -189,7 +201,7 @@ export const HomeScreen: React.FC = () => {
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = 'Software-Hub-Operations-Report.xlsx';
+                a.download = 'Operations-Report.xlsx';
                 a.click();
               }}
             >
@@ -201,8 +213,8 @@ export const HomeScreen: React.FC = () => {
           </div>
         </div>
 
-        {/* Administrator Allocation Banner (Section 1: 5 Admin Limit) */}
-        <Card padding="md" className="bg-gradient-to-r from-slate-900 to-[#1e293b] text-white border-none shadow-sm">
+        {/* Administrator Allocation Banner */}
+        <Card padding="md" className="bg-gradient-to-r from-slate-900 to-[#1e293b] text-white border-none shadow-md">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="flex items-center gap-3.5">
               <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center font-bold text-white shrink-0">
@@ -210,21 +222,25 @@ export const HomeScreen: React.FC = () => {
               </div>
               <div>
                 <h3 className="text-sm font-bold text-white">
-                  Administrator Structure — Hard Limit of 5 Accounts
+                  Administrator Structure — Hard Limit of 5 Positions
                 </h3>
                 <p className="text-xs text-slate-300 mt-0.5">
-                  Active: <strong>{adminSummary?.activeAdminsCount || 2}</strong> of <strong>5</strong> positions allocated · 
-                  <span className="text-emerald-400 font-semibold ml-1">{adminSummary?.availablePositions || 3} positions available</span>
+                  Allocated: <strong>{adminSummary?.activeAdminsCount ?? 1}</strong> of <strong>5</strong> • 
+                  <span className="text-emerald-400 font-semibold ml-1">
+                    {adminSummary?.availablePositions ?? 4} available positions
+                  </span>
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2 text-xs">
-              <span className="px-2.5 py-1 rounded bg-slate-800 border border-slate-700 text-slate-200">
-                Primary: <strong>Sri Ram</strong>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-200">
+                Primary: <strong>{adminSummary?.primaryAdmin?.name || currentUser.name}</strong>
               </span>
-              <span className="px-2.5 py-1 rounded bg-slate-800 border border-slate-700 text-slate-200">
-                Co-Admin: <strong>Sheshi</strong>
-              </span>
+              {adminSummary?.coAdmin && (
+                <span className="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-200">
+                  Co-Admin: <strong>{adminSummary.coAdmin.name}</strong>
+                </span>
+              )}
             </div>
           </div>
         </Card>
@@ -237,7 +253,7 @@ export const HomeScreen: React.FC = () => {
             onClick={() => navigate('/interns')}
           >
             <span className="text-xs font-semibold text-slate-500">Official Roster</span>
-            <div className="text-3xl font-black text-slate-900 mt-1">
+            <div className="text-3xl font-black text-slate-900 dark:text-white mt-1">
               {users.length}
             </div>
             <p className="text-xs text-slate-500 mt-1">
@@ -251,11 +267,11 @@ export const HomeScreen: React.FC = () => {
             onClick={() => navigate('/todo')}
           >
             <span className="text-xs font-semibold text-slate-500">Tasks Completed</span>
-            <div className="text-3xl font-black text-slate-900 mt-1">
+            <div className="text-3xl font-black text-slate-900 dark:text-white mt-1">
               {donePartsCount}
             </div>
             <p className="text-xs text-emerald-600 font-semibold mt-1">
-              {allParts.length > 0 ? Math.round((donePartsCount / allParts.length) * 100) : 100}% verified on-time
+              {allParts.length > 0 ? Math.round((donePartsCount / allParts.length) * 100) : 0}% of parts completed
             </p>
           </Card>
 
@@ -265,10 +281,10 @@ export const HomeScreen: React.FC = () => {
             onClick={() => navigate('/attendance')}
           >
             <span className="text-xs font-semibold text-slate-500">Average Attendance</span>
-            <div className="text-3xl font-black text-slate-900 mt-1">
+            <div className="text-3xl font-black text-slate-900 dark:text-white mt-1">
               {averageAttendancePct}%
             </div>
-            <p className="text-xs text-slate-500 mt-1">Minimum threshold is 75%</p>
+            <p className="text-xs text-slate-500 mt-1">Calculated from actual records</p>
           </Card>
 
           <Card
@@ -278,129 +294,92 @@ export const HomeScreen: React.FC = () => {
           >
             <span className="text-xs font-semibold text-slate-500">Pending Review</span>
             <div className="text-3xl font-black text-amber-600 mt-1">
-              {pendingApprovalsCount}
+              {inReviewPartsCount}
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              {inReviewPartsCount} task parts, {pendingLeavesCount} leave
+              {inReviewPartsCount} deliverables awaiting sign-off
             </p>
           </Card>
         </div>
 
-        {/* Official Teams Overview */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Card padding="md">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-bold text-slate-900">Core Team ({coreTeamMembers.length})</h3>
-              <Badge variant="primary">Level 15</Badge>
-            </div>
-            <div className="divide-y divide-slate-100 text-xs">
-              {coreTeamMembers.map((m: any) => (
-                <div key={m.id} className="py-2 flex items-center justify-between">
-                  <div>
-                    <span className="font-bold text-slate-900">{m.name}</span>
-                    <span className="text-slate-400 text-[11px] ml-2">&lt;{m.email}&gt;</span>
-                  </div>
-                  <span className="text-slate-500">{m.attendancePercentage || 92}% att.</span>
-                </div>
-              ))}
-            </div>
-          </Card>
-
-          <Card padding="md">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-bold text-slate-900">Unpaid Interns ({unpaidInterns.length})</h3>
-              <Badge variant="default">Level 2–4</Badge>
-            </div>
-            <div className="divide-y divide-slate-100 text-xs">
-              {unpaidInterns.map((m: any) => (
-                <div key={m.id} className="py-2 flex items-center justify-between">
-                  <div>
-                    <span className="font-bold text-slate-900">{m.name}</span>
-                    <span className="text-slate-400 text-[11px] ml-2">&lt;{m.email}&gt;</span>
-                  </div>
-                  <Badge variant="purple" size="sm">Level {m.currentLevel || 4}</Badge>
-                </div>
-              ))}
-            </div>
-          </Card>
-        </div>
-
-        {/* Administrative Audit Logs (Section 1) */}
+        {/* Audit Logs */}
         <Card padding="none" className="overflow-hidden">
-          <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+          <div className="p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-bold text-slate-900">Administrative Audit History</h3>
-              <p className="text-xs text-slate-500">Security logs of role assignments, promotions, and system configurations.</p>
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">Recent Administrative Audit History</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Real security log of system actions.</p>
             </div>
-            <Badge variant="default">Live Audit Log</Badge>
+            <Badge variant="default">Security Log</Badge>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="border-b border-slate-200 text-slate-500 font-semibold uppercase text-[10px]">
-                  <th className="py-2.5 px-4">Timestamp</th>
-                  <th className="py-2.5 px-4">Admin</th>
-                  <th className="py-2.5 px-4">Action</th>
-                  <th className="py-2.5 px-4">Details</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {auditLogs.slice(0, 5).map((log: any) => (
-                  <tr key={log.id} className="hover:bg-slate-50/50">
-                    <td className="py-2.5 px-4 text-slate-400 whitespace-nowrap">
-                      {new Date(log.created_at).toLocaleString()}
-                    </td>
-                    <td className="py-2.5 px-4 font-bold text-slate-800">{log.user_name || 'System'}</td>
-                    <td className="py-2.5 px-4">
-                      <span className="font-mono text-[11px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">
-                        {log.action}
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-4 text-slate-600 max-w-xs truncate">
-                      {log.details || '—'}
-                    </td>
+          {auditLogs.length === 0 ? (
+            <div className="p-8 text-center text-xs text-slate-400 italic">
+              No administrative actions recorded yet.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-500 font-semibold uppercase text-[10px]">
+                    <th className="py-2.5 px-4">Timestamp</th>
+                    <th className="py-2.5 px-4">Admin</th>
+                    <th className="py-2.5 px-4">Action</th>
+                    <th className="py-2.5 px-4">Details</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                  {auditLogs.slice(0, 5).map((log: any) => (
+                    <tr key={log.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                      <td className="py-2.5 px-4 text-slate-400 whitespace-nowrap">
+                        {new Date(log.created_at).toLocaleString()}
+                      </td>
+                      <td className="py-2.5 px-4 font-bold text-slate-800 dark:text-slate-200">
+                        {log.user_name || 'System'}
+                      </td>
+                      <td className="py-2.5 px-4">
+                        <span className="font-mono text-[11px] text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 px-1.5 py-0.5 rounded">
+                          {log.action}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-4 text-slate-600 dark:text-slate-300 max-w-xs truncate">
+                        {log.details || '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </Card>
       </div>
     );
   }
 
   // ==========================================
-  // 2. CO-ADMIN / LEAD DASHBOARD (Sheshi)
+  // 2. CO-ADMIN / LEAD DASHBOARD
   // ==========================================
   if (currentUser.role === USER_ROLES.LEAD) {
-    const workload = coreTeamMembers.map((m: any) => ({
-      name: m.name,
-      total: m.totalTasksAssigned || 2,
-      overdue: 0,
-    }));
-
     return (
       <div className="space-y-6 max-w-7xl mx-auto">
-        {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-bold tracking-wider uppercase text-blue-600">
-                CO-ADMIN / LEADER PANEL
-              </span>
-              <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded-full">
-                Equal Operational Access
-              </span>
-            </div>
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight">
+            <span className="text-[11px] font-bold tracking-wider uppercase text-blue-600 dark:text-blue-400">
+              CO-ADMIN / TEAM LEAD DASHBOARD
+            </span>
+            <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
               Good morning, {currentUser.name}
             </h1>
-            <p className="text-xs text-slate-500 mt-0.5">Direct oversight of Core Team & Unpaid Interns cohorts.</p>
+            <p className="text-xs text-slate-500 mt-0.5">Direct oversight of active cohorts and deliverables.</p>
           </div>
-          <div className="flex items-center gap-3">
-            <Button size="sm" onClick={handleCheckIn} isLoading={isCheckingIn}>
-              {isCheckedIn ? 'Checked in' : 'Check in'}
-            </Button>
+          <div className="flex items-center gap-2.5">
+            {!isCheckedIn ? (
+              <Button size="sm" onClick={handleCheckIn} isLoading={isCheckingIn}>
+                Check In
+              </Button>
+            ) : (
+              <Button size="sm" variant="outline" onClick={handleCheckOut} isLoading={isCheckingIn}>
+                Check Out
+              </Button>
+            )}
           </div>
         </div>
 
@@ -408,7 +387,7 @@ export const HomeScreen: React.FC = () => {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <Card padding="md">
             <span className="text-xs font-semibold text-slate-500">Active Tasks</span>
-            <div className="text-3xl font-black text-slate-900 mt-1">{tasks.length}</div>
+            <div className="text-3xl font-black text-slate-900 dark:text-white mt-1">{tasks.length}</div>
             <p className="text-xs text-slate-500 mt-1">{allParts.length} subtask parts</p>
           </Card>
           <Card padding="md">
@@ -419,43 +398,62 @@ export const HomeScreen: React.FC = () => {
           <Card padding="md">
             <span className="text-xs font-semibold text-slate-500">Overdue Parts</span>
             <div className="text-3xl font-black text-rose-600 mt-1">{overduePartsCount}</div>
-            <p className="text-xs text-slate-500 mt-1">Across all departments</p>
+            <p className="text-xs text-slate-500 mt-1">Requiring follow-up</p>
           </Card>
           <Card padding="md">
             <span className="text-xs font-semibold text-slate-500">Team Attendance</span>
-            <div className="text-3xl font-black text-slate-900 mt-1">{averageAttendancePct}%</div>
-            <p className="text-xs text-slate-500 mt-1">Minimum 75% met</p>
+            <div className="text-3xl font-black text-slate-900 dark:text-white mt-1">{averageAttendancePct}%</div>
+            <p className="text-xs text-slate-500 mt-1">Cohort average</p>
           </Card>
         </div>
 
-        {/* Workload & Review Queue */}
+        {/* Team Distribution & Review Queue */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div className="lg:col-span-7">
             <Card padding="md">
-              <h3 className="text-sm font-bold text-slate-900 mb-3">Core Team Distribution</h3>
-              <TeamWorkloadBarChart data={workload} />
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-3">Core Team Deliverable Workload</h3>
+              {workloadData.length === 0 ? (
+                <EmptyState
+                  title="No core intern tasks yet"
+                  description="When core team members are assigned tasks, workload charts will be calculated here."
+                  actionLabel="Create Task"
+                  onAction={() => navigate('/todo')}
+                />
+              ) : (
+                <BarChart
+                  data={workloadData}
+                  primaryLabel="Assigned"
+                  secondaryLabel="Completed"
+                />
+              )}
             </Card>
           </div>
 
           <div className="lg:col-span-5">
             <Card padding="md">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-bold text-slate-900">Review Queue</h3>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">Review Queue</h3>
                 <Button size="xs" variant="outline" onClick={() => navigate('/todo')}>
                   Open To-Do
                 </Button>
               </div>
-              <div className="divide-y divide-slate-100 text-xs">
-                {allParts.filter((p: any) => p.status === 'in_review').slice(0, 4).map((p: any) => (
-                  <div key={p.id} className="py-2.5 flex items-center justify-between">
-                    <div>
-                      <h4 className="font-bold text-slate-900">{p.title}</h4>
-                      <p className="text-slate-500 text-[11px]">Assigned: {p.assignedInternName}</p>
+              {inReviewPartsCount === 0 ? (
+                <div className="p-8 text-center text-xs text-slate-400 italic">
+                  No deliverables waiting for review.
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                  {allParts.filter((p: any) => p.status === 'in_review').slice(0, 4).map((p: any) => (
+                    <div key={p.id} className="py-2.5 flex items-center justify-between">
+                      <div>
+                        <h4 className="font-bold text-slate-900 dark:text-white">{p.title}</h4>
+                        <p className="text-slate-500 text-[11px]">Assigned: {p.assignedInternName}</p>
+                      </div>
+                      <Badge variant="warning">In Review</Badge>
                     </div>
-                    <Badge variant="warning">In Review</Badge>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </Card>
           </div>
         </div>
@@ -464,7 +462,7 @@ export const HomeScreen: React.FC = () => {
   }
 
   // ==========================================
-  // 3. CORE INTERN DASHBOARD (Manohar, etc.)
+  // 3. CORE INTERN DASHBOARD
   // ==========================================
   if (currentUser.role === USER_ROLES.PAID_INTERN) {
     const pairedInterns = users.filter((u: any) => u.pairedPaidInternId === currentUser.id);
@@ -473,26 +471,34 @@ export const HomeScreen: React.FC = () => {
       <div className="space-y-6 max-w-7xl mx-auto">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <span className="text-[11px] font-bold tracking-wider uppercase text-blue-600">
+            <span className="text-[11px] font-bold tracking-wider uppercase text-blue-600 dark:text-blue-400">
               CORE INTERN DASHBOARD
             </span>
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight">
+            <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
               Good morning, {currentUser.name}
             </h1>
             <p className="text-xs text-slate-500 mt-0.5">
-              Mentoring: {pairedInterns.map((p) => p.name).join(', ') || 'Assigned Unpaid Interns'}.
+              Mentoring: {pairedInterns.map((p) => p.name).join(', ') || 'No paired unpaid interns yet.'}
             </p>
           </div>
-          <Button size="sm" onClick={handleCheckIn} isLoading={isCheckingIn}>
-            {isCheckedIn ? 'Checked in' : 'Check in'}
-          </Button>
+          <div className="flex items-center gap-2.5">
+            {!isCheckedIn ? (
+              <Button size="sm" onClick={handleCheckIn} isLoading={isCheckingIn}>
+                Check In
+              </Button>
+            ) : (
+              <Button size="sm" variant="outline" onClick={handleCheckOut} isLoading={isCheckingIn}>
+                Check Out
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <Card padding="md">
             <span className="text-xs font-semibold text-slate-500">My Tasks</span>
-            <div className="text-3xl font-black text-slate-900 mt-1">{tasks.length}</div>
-            <p className="text-xs text-slate-500 mt-1">In progress & assigned</p>
+            <div className="text-3xl font-black text-slate-900 dark:text-white mt-1">{tasks.length}</div>
+            <p className="text-xs text-slate-500 mt-1">Active deliverables</p>
           </Card>
           <Card padding="md">
             <span className="text-xs font-semibold text-slate-500">To Review</span>
@@ -500,75 +506,114 @@ export const HomeScreen: React.FC = () => {
             <p className="text-xs text-slate-500 mt-1">From mentored interns</p>
           </Card>
           <Card padding="md">
-            <span className="text-xs font-semibold text-slate-500">Attendance</span>
-            <div className="text-3xl font-black text-slate-900 mt-1">94%</div>
-            <p className="text-xs text-slate-500 mt-1">Minimum 75%</p>
+            <span className="text-xs font-semibold text-slate-500">My Attendance</span>
+            <div className="text-3xl font-black text-slate-900 dark:text-white mt-1">
+              {myRegister?.attendanceThisMonth ?? 0}%
+            </div>
+            <p className="text-xs text-slate-500 mt-1">Minimum 75% for certificate</p>
           </Card>
           <Card padding="md">
-            <span className="text-xs font-semibold text-slate-500">Marksheet</span>
+            <span className="text-xs font-semibold text-slate-500">Marksheet Score</span>
             <div className="text-3xl font-black text-emerald-600 mt-1">
-              {currentUser.marksheetPercentage || 88.5}%
+              {currentUser.marksheetPercentage !== null && currentUser.marksheetPercentage !== undefined
+                ? `${currentUser.marksheetPercentage}%`
+                : 'Pending'}
             </div>
-            <p className="text-xs text-slate-500 mt-1">Confirmed</p>
+            <p className="text-xs text-slate-500 mt-1">
+              {currentUser.marksheetConfirmed ? 'Verified by Lead' : 'Requires verification'}
+            </p>
           </Card>
         </div>
+
+        {tasks.length === 0 && (
+          <EmptyState
+            title="No tasks assigned yet"
+            description="You currently have no tasks in your queue. You can create tasks and assign parts to your unpaid interns."
+            actionLabel="Create First Task"
+            onAction={() => navigate('/todo')}
+          />
+        )}
       </div>
     );
   }
 
   // ==========================================
-  // 4. UNPAID INTERN DASHBOARD (Cherry, etc.)
+  // 4. UNPAID INTERN DASHBOARD
   // ==========================================
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <span className="text-[11px] font-bold tracking-wider uppercase text-blue-600">
-            UNPAID INTERN DASHBOARD
+          <span className="text-[11px] font-bold tracking-wider uppercase text-blue-600 dark:text-blue-400">
+            FOUNDATIONAL INTERN DASHBOARD
           </span>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">
+          <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
             Good morning, {currentUser.name}
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Level {currentUser.currentLevel || 4} of 15 · Paired Mentor: {currentUser.pairedPaidInternName || 'Core Team'}
+            Level {currentUser.currentLevel || 1} of 15 • Mentor: {currentUser.pairedPaidInternName || 'Central Office Lead'}
           </p>
         </div>
-        <Button size="sm" onClick={handleCheckIn} isLoading={isCheckingIn}>
-          {isCheckedIn ? 'Checked in' : 'Check in'}
-        </Button>
+        <div className="flex items-center gap-2.5">
+          {!isCheckedIn ? (
+            <Button size="sm" onClick={handleCheckIn} isLoading={isCheckingIn}>
+              Check In
+            </Button>
+          ) : (
+            <Button size="sm" variant="outline" onClick={handleCheckOut} isLoading={isCheckingIn}>
+              Check Out
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card padding="md" className="flex items-center gap-4">
-          <LevelProgressRing currentLevel={currentUser.currentLevel || 4} totalLevels={15} />
+          <ProgressRing current={currentUser.currentLevel || 1} total={15} size={64} />
           <div>
-            <h4 className="text-xs font-bold text-slate-900">
-              Level {currentUser.currentLevel || 4} of 15
+            <h4 className="text-xs font-bold text-slate-900 dark:text-white">
+              Level {currentUser.currentLevel || 1} of 15
             </h4>
             <p className="text-[11px] text-slate-500 mt-0.5">
-              Promotion review upon completion of required tasks.
+              15 passed levels qualify for Core (Paid) promotion upon Admin approval.
             </p>
           </div>
         </Card>
 
         <Card padding="md">
-          <span className="text-xs font-semibold text-slate-500">Assigned Tasks</span>
-          <div className="text-3xl font-black text-slate-900 mt-1">{tasks.length}</div>
-          <p className="text-xs text-slate-500 mt-1">Active deliverables</p>
+          <span className="text-xs font-semibold text-slate-500">My Assigned Parts</span>
+          <div className="text-3xl font-black text-slate-900 dark:text-white mt-1">{allParts.length}</div>
+          <p className="text-xs text-slate-500 mt-1">{donePartsCount} parts completed</p>
         </Card>
 
         <Card padding="md">
-          <span className="text-xs font-semibold text-slate-500">Attendance</span>
-          <div className="text-3xl font-black text-slate-900 mt-1">92%</div>
-          <p className="text-xs text-slate-500 mt-1">Minimum 75% met</p>
+          <span className="text-xs font-semibold text-slate-500">My Attendance</span>
+          <div className="text-3xl font-black text-slate-900 dark:text-white mt-1">
+            {myRegister?.attendanceThisMonth ?? 0}%
+          </div>
+          <p className="text-xs text-slate-500 mt-1">Minimum 75% for Level 1 Certificate</p>
         </Card>
 
         <Card padding="md">
-          <span className="text-xs font-semibold text-slate-500">Status</span>
-          <div className="text-3xl font-black text-emerald-600 mt-1">Active</div>
-          <p className="text-xs text-slate-500 mt-1">Good standing</p>
+          <span className="text-xs font-semibold text-slate-500">Today's Status</span>
+          <div className="text-3xl font-black text-emerald-600 mt-1">
+            {isCheckedIn ? 'Present' : 'Not Checked In'}
+          </div>
+          <p className="text-xs text-slate-500 mt-1">
+            {isCheckedIn ? 'Attendance confirmed' : 'Check in before 11:00'}
+          </p>
         </Card>
       </div>
+
+      {tasks.length === 0 && (
+        <EmptyState
+          title="No tasks assigned yet"
+          description="Your team lead or core mentor has not assigned deliverables to you yet. You will be notified immediately when a task part is assigned."
+          actionLabel="Check Attendance"
+          onAction={() => navigate('/attendance')}
+        />
+      )}
     </div>
   );
 };
+export default HomeScreen;

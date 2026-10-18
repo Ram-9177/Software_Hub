@@ -163,3 +163,52 @@ export interface AutomationDTO {
   emailSubjectTemplate: string;
   emailBodyTemplate: string;
 }
+
+export interface InviteDTO {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  internType?: InternType | null;
+  teamId?: string | null;
+  teamName?: string | null;
+  invitedByUserId: string;
+  invitedByUserName?: string | null;
+  status: 'pending' | 'accepted' | 'cancelled' | 'expired';
+  expiresAt: string;
+  acceptedAt?: string | null;
+  createdAt: string;
+  inviteLink?: string;
+}
+
+export interface VerifyInviteResponse {
+  valid: boolean;
+  name?: string;
+  email?: string;
+  role?: UserRole;
+  internType?: InternType | null;
+  status?: 'pending' | 'accepted' | 'cancelled' | 'expired';
+  message?: string;
+  canAskNew?: boolean;
+}
+
+export interface UserProfileDTO {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  internType?: InternType | null;
+  pairedPaidInternId?: string | null;
+  pairedPaidInternName?: string | null;
+  currentLevel: number;
+  marksheetPercentage?: number | null;
+  marksheetConfirmed?: boolean;
+  status: 'active' | 'inactive';
+  avatarUrl?: string | null;
+  emailNotificationsMuted?: boolean;
+  pushNotificationsMuted?: boolean;
+  teamId?: string | null;
+  teamName?: string | null;
+  createdAt: string;
+}
+

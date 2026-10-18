@@ -4,7 +4,6 @@ import { USER_ROLES, TASK_STATUSES, type TaskStatus } from '@command-center/shar
 import { sendSystemNotification } from '../automations/emailService.js';
 import { logAdminAction } from '../users/userController.js';
 
-// Helper to determine overdue status dynamically
 function computePartStatus(status: TaskStatus, dueDate: Date): TaskStatus {
   if (status === TASK_STATUSES.DONE) return TASK_STATUSES.DONE;
   if (new Date() > new Date(dueDate)) {
@@ -34,7 +33,7 @@ export async function getTasks(req: Request, res: Response) {
 
   const taskIds = tasks.map((t) => t.id);
 
-  let partsQuery = db('task_parts as tp')
+  const allParts = await db('task_parts as tp')
     .whereIn('tp.task_id', taskIds)
     .leftJoin('users as a', 'tp.assigned_intern_id', 'a.id')
     .leftJoin('users as r', 'tp.reviewer_id', 'r.id')
@@ -59,9 +58,6 @@ export async function getTasks(req: Request, res: Response) {
     )
     .orderBy('tp.part_number', 'asc');
 
-  const allParts = await partsQuery;
-
-  // Retrieve uploads for these parts
   const partIds = allParts.map((p) => p.id);
   const uploads = await db('uploads as up')
     .whereIn('up.task_part_id', partIds)
@@ -85,41 +81,28 @@ export async function getTasks(req: Request, res: Response) {
     uploadsByPart[up.taskPartId].push(up);
   }
 
-  // Attach parts to tasks with dynamic status checks
+  // Get user's team memberships if Core Intern
+  let myTeamMemberIds: string[] = [];
+  if (currentUser.role === USER_ROLES.PAID_INTERN) {
+    const myTeamIds = await db('team_members').where({ user_id: currentUser.id }).pluck('team_id');
+    myTeamMemberIds = await db('team_members').whereIn('team_id', myTeamIds).pluck('user_id');
+  }
+
+  // Scope filtering & status computation
   const tasksWithParts = tasks
     .map((task) => {
-      let parts = allParts.filter((p) => p.taskId === task.id);
+      const originalParts = allParts.filter((p) => p.taskId === task.id);
 
-      parts = parts.map((p) => ({
-        ...p,
-        status: computePartStatus(p.status as TaskStatus, p.dueDate),
-        uploads: uploadsByPart[p.id] || [],
-      }));
-
-      // Role Scoping for Unpaid & Core Interns
-      if (currentUser.role === USER_ROLES.UNPAID_INTERN) {
-        parts = parts.filter((p) => p.assignedInternId === currentUser.id);
-      } else if (currentUser.role === USER_ROLES.PAID_INTERN) {
-        parts = parts.filter(
-          (p) =>
-            p.assignedInternId === currentUser.id ||
-            p.assignedInternPairedId === currentUser.id
-        );
-      }
-
-      // Compute overarching task status:
+      // Compute overarching task status from all original parts:
       // "A task is Done only when every part is approved"
-      const allOriginalParts = allParts.filter((p) => p.taskId === task.id);
       const isAllDone =
-        allOriginalParts.length > 0 &&
-        allOriginalParts.every((p) => p.status === TASK_STATUSES.DONE);
-      const hasOverdue = allOriginalParts.some(
+        originalParts.length > 0 &&
+        originalParts.every((p) => p.status === TASK_STATUSES.DONE);
+      const hasOverdue = originalParts.some(
         (p) => computePartStatus(p.status as TaskStatus, p.dueDate) === TASK_STATUSES.OVERDUE
       );
-      const hasInReview = allOriginalParts.some((p) => p.status === TASK_STATUSES.IN_REVIEW);
-      const hasInProgress = allOriginalParts.some(
-        (p) => p.status === TASK_STATUSES.IN_PROGRESS
-      );
+      const hasInReview = originalParts.some((p) => p.status === TASK_STATUSES.IN_REVIEW);
+      const hasInProgress = originalParts.some((p) => p.status === TASK_STATUSES.IN_PROGRESS);
 
       let computedStatus: TaskStatus = task.status as TaskStatus;
       if (isAllDone) computedStatus = TASK_STATUSES.DONE;
@@ -127,15 +110,40 @@ export async function getTasks(req: Request, res: Response) {
       else if (hasInReview) computedStatus = TASK_STATUSES.IN_REVIEW;
       else if (hasInProgress) computedStatus = TASK_STATUSES.IN_PROGRESS;
 
+      // Filter visible parts by role
+      let visibleParts = originalParts.map((p) => ({
+        ...p,
+        status: computePartStatus(p.status as TaskStatus, p.dueDate),
+        uploads: uploadsByPart[p.id] || [],
+      }));
+
+      if (currentUser.role === USER_ROLES.UNPAID_INTERN) {
+        // Unpaid intern: sees only their own assigned parts
+        visibleParts = visibleParts.filter((p) => p.assignedInternId === currentUser.id);
+      } else if (currentUser.role === USER_ROLES.PAID_INTERN) {
+        // Core intern: views their own work, their team's work, and their unpaid interns' work
+        visibleParts = visibleParts.filter(
+          (p) =>
+            p.assignedInternId === currentUser.id ||
+            p.assignedInternPairedId === currentUser.id ||
+            myTeamMemberIds.includes(p.assignedInternId) ||
+            task.createdBy === currentUser.id
+        );
+      }
+
       return {
         ...task,
         status: computedStatus,
-        parts,
+        parts: visibleParts,
       };
     })
     .filter((task) => {
-      if (currentUser.role === USER_ROLES.UNPAID_INTERN) {
-        return task.parts.length > 0;
+      // If intern, only show tasks that have at least one visible part for them
+      if (
+        currentUser.role === USER_ROLES.UNPAID_INTERN ||
+        currentUser.role === USER_ROLES.PAID_INTERN
+      ) {
+        return task.parts.length > 0 || task.createdBy === currentUser.id;
       }
       return true;
     });
@@ -145,12 +153,34 @@ export async function getTasks(req: Request, res: Response) {
 
 export async function createTask(req: Request, res: Response) {
   const currentUser = req.user!;
-  const { title, description, dueDate, priority, parts } = req.body;
+  const { title, description, dueDate, priority = 'medium', parts } = req.body;
+
+  if (!title || !dueDate || !parts || !Array.isArray(parts) || parts.length === 0) {
+    return res.status(400).json({ message: 'Task title, deadline, and at least one part are required.' });
+  }
+
+  // Core intern permissions check: can assign to themselves, team members, or their paired unpaid interns
+  if (currentUser.role === USER_ROLES.PAID_INTERN) {
+    const pairedInternIds = await db('users')
+      .where({ paired_paid_intern_id: currentUser.id })
+      .pluck('id');
+    const myTeamIds = await db('team_members').where({ user_id: currentUser.id }).pluck('team_id');
+    const teamUserIds = await db('team_members').whereIn('team_id', myTeamIds).pluck('user_id');
+    const allowedAssignees = new Set([currentUser.id, ...pairedInternIds, ...teamUserIds]);
+
+    for (const p of parts) {
+      if (!allowedAssignees.has(p.assignedInternId)) {
+        return res.status(403).json({
+          message: 'Core interns may only assign task parts to themselves, their team members, or their paired unpaid interns.',
+        });
+      }
+    }
+  }
 
   const taskId = `task-${Date.now()}`;
-  const count = await db('tasks').count('id as count').first();
-  const nextNum = 140 + Number(count?.count || 0) + 1;
-  const taskNumber = `T-${nextNum}`;
+  const countRecord = await db('tasks').count('id as count').first();
+  const nextNum = Number(countRecord?.count || 0) + 1;
+  const taskNumber = `TASK-${String(nextNum).padStart(3, '0')}`;
 
   await db('tasks').insert({
     id: taskId,
@@ -161,6 +191,8 @@ export async function createTask(req: Request, res: Response) {
     priority,
     status: TASK_STATUSES.TO_DO,
     created_by: currentUser.id,
+    created_at: new Date(),
+    updated_at: new Date(),
   });
 
   const totalParts = parts.length;
@@ -174,21 +206,24 @@ export async function createTask(req: Request, res: Response) {
       total_parts: totalParts,
       title: p.title,
       assigned_intern_id: p.assignedInternId,
-      due_date: new Date(p.dueDate),
+      reviewer_id: p.reviewerId || (currentUser.role !== USER_ROLES.UNPAID_INTERN ? currentUser.id : null),
+      due_date: new Date(p.dueDate || dueDate),
       status: TASK_STATUSES.TO_DO,
     });
 
-    // Send real email notification for new task assignment
+    // 2. New Task or Part Assigned Email Automation: immediately to the assignee
     const assignee = await db('users').where({ id: p.assignedInternId }).first();
     if (assignee?.email) {
       sendSystemNotification({
-        eventType: 'task_assigned',
+        ruleKey: 'new_task_assigned',
         recipientEmail: assignee.email,
         recipientName: assignee.name,
+        recipientUserId: assignee.id,
+        idempotencyKey: `task_assigned:${partId}`,
         variables: {
           task_title: `${title} (Part ${i + 1}: ${p.title})`,
           task_priority: priority,
-          task_deadline: new Date(p.dueDate).toLocaleDateString(),
+          task_deadline: new Date(p.dueDate || dueDate).toLocaleDateString(),
           assigned_by: currentUser.name,
         },
       }).catch((err) => console.error('[TaskEmail] Error sending assignment email:', err));
@@ -213,15 +248,38 @@ export async function uploadPartWork(req: Request, res: Response) {
   const { partId } = req.params;
   const { kind, gitLink, documentationLink } = req.body;
 
+  const part = await db('task_parts as tp')
+    .join('tasks as t', 'tp.task_id', 't.id')
+    .where('tp.id', partId)
+    .select('tp.*', 't.title as taskTitle', 't.created_by as taskCreatedBy')
+    .first();
+
+  if (!part) {
+    return res.status(404).json({ message: 'Task part not found' });
+  }
+
+  // Server-side check: caller must be the assigned intern (or admin/lead)
+  const isAssignee = part.assigned_intern_id === currentUser.id;
+  const isManagement =
+    currentUser.role === USER_ROLES.ADMIN || currentUser.role === USER_ROLES.LEAD;
+
+  if (!isAssignee && !isManagement) {
+    return res.status(403).json({
+      message: 'Permission denied: You can only upload proof of work for task parts assigned to you.',
+    });
+  }
+
   let urlOrPath = '';
   let fileName = '';
   let fileSize = 0;
   let mimeType = 'text/plain';
 
   if (kind === 'git_link') {
+    if (!gitLink) return res.status(400).json({ message: 'Git link URL is required.' });
     urlOrPath = gitLink;
     fileName = 'Git repository link';
   } else if (kind === 'documentation') {
+    if (!documentationLink) return res.status(400).json({ message: 'Documentation link is required.' });
     urlOrPath = documentationLink;
     fileName = 'Documentation link';
   } else if (req.file) {
@@ -229,6 +287,8 @@ export async function uploadPartWork(req: Request, res: Response) {
     fileName = req.file.originalname;
     fileSize = req.file.size;
     mimeType = req.file.mimetype;
+  } else {
+    return res.status(400).json({ message: 'A file, Git link, or documentation link is required.' });
   }
 
   const uploadId = `up-${Date.now()}`;
@@ -247,6 +307,39 @@ export async function uploadPartWork(req: Request, res: Response) {
     .where({ id: partId })
     .update({ status: TASK_STATUSES.IN_REVIEW, submitted_at: new Date() });
 
+  // 5. Work Submitted Email Automation: immediately to the reviewer
+  // Find designated reviewer or paired core mentor or task creator
+  let reviewer = null;
+  if (part.reviewer_id) {
+    reviewer = await db('users').where({ id: part.reviewer_id }).first();
+  }
+  if (!reviewer) {
+    // Check if uploader is an unpaid intern paired to a core mentor
+    const uploader = await db('users').where({ id: currentUser.id }).first();
+    if (uploader?.paired_paid_intern_id) {
+      reviewer = await db('users').where({ id: uploader.paired_paid_intern_id }).first();
+    }
+  }
+  if (!reviewer) {
+    reviewer = await db('users').where({ id: part.taskCreatedBy }).first();
+  }
+
+  if (reviewer?.email) {
+    sendSystemNotification({
+      ruleKey: 'work_submitted',
+      recipientEmail: reviewer.email,
+      recipientName: reviewer.name,
+      recipientUserId: reviewer.id,
+      idempotencyKey: `work_submitted:${uploadId}`,
+      variables: {
+        reviewer_name: reviewer.name,
+        intern_name: currentUser.name,
+        task_title: `${part.taskTitle} (Part ${part.part_number})`,
+        submission_type: fileName || kind,
+      },
+    }).catch((err) => console.error('[WorkSubmittedEmail] Error:', err));
+  }
+
   return res.status(201).json({ message: 'Deliverable uploaded and submitted for review', uploadId });
 }
 
@@ -255,14 +348,33 @@ export async function reviewTaskPart(req: Request, res: Response) {
   const { partId } = req.params;
   const { action, rating, comment } = req.body;
 
+  // Role authorization: Unpaid intern cannot review
+  if (currentUser.role === USER_ROLES.UNPAID_INTERN) {
+    return res.status(403).json({ message: 'Unpaid interns are not authorized to review deliverables.' });
+  }
+
   const part = await db('task_parts as tp')
     .join('tasks as t', 'tp.task_id', 't.id')
     .where('tp.id', partId)
-    .select('tp.*', 't.title as taskTitle')
+    .select('tp.*', 't.title as taskTitle', 't.created_by as taskCreatedBy')
     .first();
 
   if (!part) {
     return res.status(404).json({ message: 'Task part not found' });
+  }
+
+  // If Core Intern, verify reviewer rights (must be assigned reviewer, mentor of assignee, or task creator)
+  if (currentUser.role === USER_ROLES.PAID_INTERN) {
+    const assignee = await db('users').where({ id: part.assigned_intern_id }).first();
+    const isMentor = assignee?.paired_paid_intern_id === currentUser.id;
+    const isTaskCreator = part.taskCreatedBy === currentUser.id;
+    const isDesignatedReviewer = part.reviewer_id === currentUser.id;
+
+    if (!isMentor && !isTaskCreator && !isDesignatedReviewer) {
+      return res.status(403).json({
+        message: 'Core interns may only review work from their paired unpaid interns or tasks they created.',
+      });
+    }
   }
 
   const assignee = await db('users').where({ id: part.assigned_intern_id }).first();
@@ -276,18 +388,21 @@ export async function reviewTaskPart(req: Request, res: Response) {
       reviewed_at: new Date(),
     });
 
-    // Check if all parts of the parent task are now Done
+    // Check if every part of the parent task is now Done
     const allParts = await db('task_parts').where({ task_id: part.task_id });
     const allDone = allParts.every((p) => p.id === partId || p.status === TASK_STATUSES.DONE);
     if (allDone) {
       await db('tasks').where({ id: part.task_id }).update({ status: TASK_STATUSES.DONE });
     }
 
+    // 6. Reviewed or Sent Back Email Automation: immediately to the assignee
     if (assignee?.email) {
       sendSystemNotification({
-        eventType: 'work_reviewed',
+        ruleKey: 'reviewed_or_sent_back',
         recipientEmail: assignee.email,
         recipientName: assignee.name,
+        recipientUserId: assignee.id,
+        idempotencyKey: `reviewed_approved:${partId}:${Date.now()}`,
         variables: {
           task_title: `${part.taskTitle} (Part ${part.part_number})`,
           submission_status: 'Approved',
@@ -296,130 +411,72 @@ export async function reviewTaskPart(req: Request, res: Response) {
       }).catch((err) => console.error('[ReviewEmail] Error:', err));
     }
 
-    await logAdminAction({
-      userId: currentUser.id,
-      userName: currentUser.name,
-      action: 'TASK_PART_APPROVED',
-      resourceType: 'TASK_PART',
-      resourceId: partId,
-      details: { taskTitle: part.taskTitle, rating: rating || 5 },
-      ipAddress: req.ip,
-    });
-
     return res.json({ message: 'Part approved successfully' });
   } else {
-    // Sent back -> returns to in_progress
+    // Sent back -> status returns to in_progress
     await db('task_parts').where({ id: partId }).update({
       status: TASK_STATUSES.IN_PROGRESS,
       reviewer_id: currentUser.id,
-      review_comment: comment,
+      review_comment: comment || 'Revision requested',
       reviewed_at: new Date(),
     });
 
+    // 6. Reviewed or Sent Back Email Automation: immediately to the assignee
     if (assignee?.email) {
       sendSystemNotification({
-        eventType: 'work_reviewed',
+        ruleKey: 'reviewed_or_sent_back',
         recipientEmail: assignee.email,
         recipientName: assignee.name,
+        recipientUserId: assignee.id,
+        idempotencyKey: `reviewed_rejected:${partId}:${Date.now()}`,
         variables: {
           task_title: `${part.taskTitle} (Part ${part.part_number})`,
           submission_status: 'Changes Requested / Sent Back',
-          review_comment: comment || 'Please review notes and resubmit corrected work.',
+          review_comment: comment || 'Please review feedback and resubmit your proof of work.',
         },
       }).catch((err) => console.error('[ReviewEmail] Error:', err));
     }
 
-    await logAdminAction({
-      userId: currentUser.id,
-      userName: currentUser.name,
-      action: 'TASK_PART_CHANGES_REQUESTED',
-      resourceType: 'TASK_PART',
-      resourceId: partId,
-      details: { taskTitle: part.taskTitle, comment },
-      ipAddress: req.ip,
-    });
-
-    return res.json({ message: 'Part sent back with comments for revision' });
+    return res.json({ message: 'Part sent back with feedback for revision' });
   }
 }
 
 export async function reassignTaskPart(req: Request, res: Response) {
   const currentUser = req.user!;
   const { partId } = req.params;
-  const { newAssigneeId, reason, newDueDate } = req.body;
+  const { newAssigneeId, newDueDate } = req.body;
 
   if (!newAssigneeId) {
     return res.status(400).json({ message: 'newAssigneeId is required' });
   }
 
-  const part = await db('task_parts as tp')
-    .join('tasks as t', 'tp.task_id', 't.id')
-    .where('tp.id', partId)
-    .select('tp.*', 't.title as taskTitle', 't.priority as taskPriority')
-    .first();
-
-  if (!part) {
-    return res.status(404).json({ message: 'Task part not found' });
+  const newAssignee = await db('users').where({ id: newAssigneeId }).first();
+  if (!newAssignee) {
+    return res.status(404).json({ message: 'New assignee not found' });
   }
-
-  const isAuthorized =
-    currentUser.role === USER_ROLES.ADMIN ||
-    currentUser.role === USER_ROLES.LEAD ||
-    currentUser.role === USER_ROLES.PAID_INTERN;
-
-  if (!isAuthorized) {
-    return res.status(403).json({ message: 'Unauthorized to reassign task parts' });
-  }
-
-  const targetUser = await db('users').where({ id: newAssigneeId, status: 'active' }).first();
-  if (!targetUser) {
-    return res.status(400).json({ message: 'Target assignee not found or inactive' });
-  }
-
-  const previousAssignee = await db('users').where({ id: part.assigned_intern_id }).first();
 
   const updates: Record<string, any> = {
     assigned_intern_id: newAssigneeId,
   };
-  if (newDueDate) {
-    updates.due_date = new Date(newDueDate);
-  }
+  if (newDueDate) updates.due_date = new Date(newDueDate);
 
   await db('task_parts').where({ id: partId }).update(updates);
 
-  // Trigger reassignment email to new assignee
-  if (targetUser.email) {
-    sendSystemNotification({
-      eventType: 'task_reassigned',
-      recipientEmail: targetUser.email,
-      recipientName: targetUser.name,
-      variables: {
-        task_title: `${part.taskTitle} (Part ${part.part_number})`,
-        task_priority: part.taskPriority || 'Medium',
-        task_deadline: new Date(newDueDate || part.due_date).toLocaleDateString(),
-        previous_assignee: previousAssignee?.name || 'Previous Assignee',
-      },
-    }).catch((err) => console.error('[ReassignEmail] Error:', err));
-  }
-
-  await logAdminAction({
-    userId: currentUser.id,
-    userName: currentUser.name,
-    action: 'TASK_PART_REASSIGNED',
-    resourceType: 'TASK_PART',
-    resourceId: partId,
-    details: {
-      taskTitle: part.taskTitle,
-      previousAssignee: previousAssignee?.name,
-      newAssignee: targetUser.name,
-      reason: reason || null,
+  // Notify new assignee via Rule 2
+  sendSystemNotification({
+    ruleKey: 'new_task_assigned',
+    recipientEmail: newAssignee.email,
+    recipientName: newAssignee.name,
+    recipientUserId: newAssignee.id,
+    variables: {
+      task_title: `Reassigned Task Part`,
+      task_priority: 'medium',
+      task_deadline: newDueDate ? new Date(newDueDate).toLocaleDateString() : 'As scheduled',
+      assigned_by: currentUser.name,
     },
-    ipAddress: req.ip,
-  });
+  }).catch(() => {});
 
   return res.json({
-    message: `Task part reassigned to ${targetUser.name} successfully`,
-    newAssigneeName: targetUser.name,
-    reason: reason || null,
+    message: `Task part successfully reassigned to ${newAssignee.name}`,
   });
 }

@@ -131,53 +131,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </nav>
       </div>
 
-      {/* Role Switcher (For Demo & Testing) & User Profile Footer */}
-      <div className="p-3.5 border-t border-slate-800/80 bg-[#0b1222] space-y-2">
-        {onSwitchUser && (
-          <div className="px-2 py-1.5 bg-slate-900/80 rounded-lg border border-slate-800">
-            <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-1">
-              Active Persona
-            </span>
-            <div className="grid grid-cols-2 gap-1 text-[11px]">
-              <button
-                type="button"
-                onClick={() => onSwitchUser(USER_ROLES.ADMIN)}
-                className={`py-1 px-1.5 rounded text-left truncate transition-colors ${
-                  isAdmin ? 'bg-blue-600 text-white font-bold' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Admin (Sri Ram)
-              </button>
-              <button
-                type="button"
-                onClick={() => onSwitchUser(USER_ROLES.LEAD)}
-                className={`py-1 px-1.5 rounded text-left truncate transition-colors ${
-                  isLead ? 'bg-blue-600 text-white font-bold' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Co-Admin (Sheshi)
-              </button>
-              <button
-                type="button"
-                onClick={() => onSwitchUser(USER_ROLES.PAID_INTERN)}
-                className={`py-1 px-1.5 rounded text-left truncate transition-colors ${
-                  isPaid ? 'bg-blue-600 text-white font-bold' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Core (Manohar)
-              </button>
-              <button
-                type="button"
-                onClick={() => onSwitchUser(USER_ROLES.UNPAID_INTERN)}
-                className={`py-1 px-1.5 rounded text-left truncate transition-colors ${
-                  isUnpaid ? 'bg-blue-600 text-white font-bold' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Unpaid (Cherry)
-              </button>
-            </div>
-          </div>
-        )}
+      {/* User Profile Footer */}
+      <div className="p-3.5 border-t border-slate-800/80 bg-[#0b1222]">
 
         {/* Current User Pill */}
         <div className="flex items-center justify-between p-2 rounded-xl bg-slate-800/50 hover:bg-slate-800/80 transition-colors">

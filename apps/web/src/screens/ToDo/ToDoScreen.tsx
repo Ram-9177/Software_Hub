@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '../../lib/api.js';
 import { useAuth } from '../../contexts/AuthContext.js';
@@ -9,22 +9,28 @@ import { Modal } from '../../components/ui/Modal.js';
 import { Input } from '../../components/ui/Input.js';
 import { Textarea } from '../../components/ui/Textarea.js';
 import { Select } from '../../components/ui/Select.js';
+import { EmptyState } from '../../components/ui/EmptyState.js';
 import { useToast } from '../../components/ui/Toast.js';
 import {
   Plus,
   Check,
   Star,
   UploadCloud,
-  Link as LinkIcon,
   FileText,
   UserCheck,
-  Download,
   Calendar as CalendarIcon,
   Trash2,
   ExternalLink,
   RefreshCw,
+  CheckCircle2,
+  ListTodo,
+  Layers,
+  ArrowRight,
+  ArrowLeft,
+  Clock,
+  AlertCircle,
 } from 'lucide-react';
-import { USER_ROLES, TASK_PRIORITIES, TASK_STATUSES, type TaskPriority } from '@command-center/shared';
+import { USER_ROLES, TASK_PRIORITIES, TASK_STATUSES, type TaskPriority, type TaskStatus } from '@command-center/shared';
 
 interface NewTaskPart {
   title: string;
@@ -39,19 +45,26 @@ export const ToDoScreen: React.FC = () => {
 
   const [selectedTask, setSelectedTask] = useState<any | null>(null);
   const [selectedPart, setSelectedPart] = useState<any | null>(null);
+  const [statusFilter, setStatusFilter] = useState<string>('all');
 
   // Modals
   const [isNewTaskModalOpen, setIsNewTaskModalOpen] = useState(false);
+  const [creationStep, setCreationStep] = useState<1 | 2 | 3>(1);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const [isReassignModalOpen, setIsReassignModalOpen] = useState(false);
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
   // New Task Form State
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskDescription, setNewTaskDescription] = useState('');
   const [newTaskPriority, setNewTaskPriority] = useState<TaskPriority>(TASK_PRIORITIES.MEDIUM);
-  const [newTaskDueDate, setNewTaskDueDate] = useState('2026-10-25');
+  const [newTaskDueDate, setNewTaskDueDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 7);
+    return d.toISOString().split('T')[0];
+  });
   const [newTaskParts, setNewTaskParts] = useState<NewTaskPart[]>([
-    { title: 'Part 1: Initial Implementation', assignedInternId: '', dueDate: '2026-10-25' },
+    { title: 'Part 1: Initial Discovery & Planning', assignedInternId: '', dueDate: '' },
   ]);
 
   // Reassign Form State
@@ -82,17 +95,17 @@ export const ToDoScreen: React.FC = () => {
     enabled: currentUser?.role !== USER_ROLES.UNPAID_INTERN,
   });
 
-  // Default assigned intern in parts
+  // Initialize assigned intern for parts when users load
   React.useEffect(() => {
     if (users.length > 0 && newTaskParts.length > 0 && !newTaskParts[0].assignedInternId) {
       setNewTaskParts((prev) => [
-        { ...prev[0], assignedInternId: users[0].id },
+        { ...prev[0], assignedInternId: users[0].id, dueDate: newTaskDueDate },
         ...prev.slice(1),
       ]);
     }
-  }, [users, newTaskParts]);
+  }, [users, newTaskParts, newTaskDueDate]);
 
-  // Sync selected task and part
+  // Keep selected task and part in sync
   React.useEffect(() => {
     if (tasks.length > 0 && !selectedTask) {
       setSelectedTask(tasks[0]);
@@ -140,6 +153,7 @@ export const ToDoScreen: React.FC = () => {
     onSuccess: () => {
       showToast({ type: 'success', title: 'Task Created', message: 'New task added successfully.' });
       setIsNewTaskModalOpen(false);
+      setCreationStep(1);
       setNewTaskTitle('');
       setNewTaskDescription('');
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
@@ -205,12 +219,13 @@ export const ToDoScreen: React.FC = () => {
     onSuccess: () => {
       showToast({
         type: 'success',
-        title: 'Submitted for review',
-        message: 'Your deliverable has been recorded.',
+        title: 'Submitted for Review',
+        message: 'Your deliverable proof has been recorded.',
       });
       setGitLink('');
       setDocLink('');
       setSelectedFile(null);
+      setIsUploadModalOpen(false);
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
     },
     onError: (err: any) => {
@@ -246,13 +261,21 @@ export const ToDoScreen: React.FC = () => {
     },
   });
 
-  // Aggregate all parts for the Kanban board
-  const allParts: any[] = [];
-  tasks.forEach((t) => {
-    t.parts?.forEach((p: any) => {
-      allParts.push({ ...p, parentTask: t });
+  // Aggregate all parts
+  const allParts = useMemo(() => {
+    const list: any[] = [];
+    tasks.forEach((t) => {
+      t.parts?.forEach((p: any) => {
+        list.push({ ...p, parentTask: t });
+      });
     });
-  });
+    return list;
+  }, [tasks]);
+
+  const filteredParts = useMemo(() => {
+    if (statusFilter === 'all') return allParts;
+    return allParts.filter((p) => p.status === statusFilter);
+  }, [allParts, statusFilter]);
 
   const partsByStatus = {
     to_do: allParts.filter((p) => p.status === 'to_do'),
@@ -267,6 +290,11 @@ export const ToDoScreen: React.FC = () => {
     currentUser?.role === USER_ROLES.LEAD ||
     currentUser?.role === USER_ROLES.PAID_INTERN;
 
+  const canCreate =
+    currentUser?.role === USER_ROLES.ADMIN ||
+    currentUser?.role === USER_ROLES.LEAD ||
+    currentUser?.role === USER_ROLES.PAID_INTERN;
+
   const formatDate = (dateStr: string) => {
     try {
       const d = new Date(dateStr);
@@ -277,562 +305,804 @@ export const ToDoScreen: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
+    <div className="space-y-6 max-w-7xl mx-auto pb-16">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">To-Do</h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Tasks for the whole team, split into parts. Team leads, admins, and core interns manage and review.
+          <div className="flex items-center gap-2">
+            <span className="p-2 rounded-xl bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">
+              <ListTodo className="w-5 h-5" />
+            </span>
+            <h1 className="text-2xl font-black text-slate-900 dark:text-slate-100 tracking-tight">
+              To-Do & Part Delegation
+            </h1>
+          </div>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            Tasks split into deliverable parts. Marked done only when all parts are approved.
           </p>
         </div>
-        {currentUser?.role !== USER_ROLES.UNPAID_INTERN && (
+
+        {canCreate && (
           <Button
             size="sm"
-            onClick={() => setIsNewTaskModalOpen(true)}
+            onClick={() => {
+              setCreationStep(1);
+              setIsNewTaskModalOpen(true);
+            }}
             leftIcon={<Plus className="w-4 h-4" />}
+            className="min-h-[44px]"
           >
-            New task
+            New Task
           </Button>
         )}
       </div>
 
-      {/* Kanban Board Columns */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-        {/* To Do */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between text-xs font-bold text-slate-600 px-1">
-            <span>To do</span>
-            <span className="text-slate-400">{partsByStatus.to_do.length}</span>
-          </div>
-          <div className="space-y-2.5">
-            {partsByStatus.to_do.map((part) => (
-              <div
-                key={part.id}
-                onClick={() => {
-                  setSelectedTask(part.parentTask);
-                  setSelectedPart(part);
-                }}
-                className={`p-3 bg-white rounded-xl border cursor-pointer transition-all duration-150 hover:shadow-sm ${
-                  selectedPart?.id === part.id
-                    ? 'border-blue-500 ring-2 ring-blue-500/20'
-                    : 'border-slate-200'
-                }`}
-              >
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <Badge variant="default" size="sm">
-                    {part.parentTask?.taskNumber}
-                  </Badge>
-                  <span className="text-[10px] text-slate-400">
-                    Part {part.partNumber}/{part.totalParts}
-                  </span>
-                </div>
-                <h4 className="text-xs font-bold text-slate-900 leading-snug">{part.title}</h4>
-                <div className="flex items-center justify-between mt-2.5 text-[11px]">
-                  <span className="font-semibold text-slate-700 truncate max-w-[120px]">
-                    {part.assignedInternName || 'Unassigned'}
-                  </span>
-                  <span className="text-slate-500 shrink-0">{formatDate(part.dueDate)}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* In Progress */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between text-xs font-bold text-blue-700 px-1">
-            <span>In progress</span>
-            <span className="text-blue-500">{partsByStatus.in_progress.length}</span>
-          </div>
-          <div className="space-y-2.5">
-            {partsByStatus.in_progress.map((part) => (
-              <div
-                key={part.id}
-                onClick={() => {
-                  setSelectedTask(part.parentTask);
-                  setSelectedPart(part);
-                }}
-                className={`p-3 bg-white rounded-xl border cursor-pointer transition-all duration-150 hover:shadow-sm ${
-                  selectedPart?.id === part.id
-                    ? 'border-blue-500 ring-2 ring-blue-500/20'
-                    : 'border-slate-200'
-                }`}
-              >
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <Badge variant="primary" size="sm">
-                    {part.parentTask?.taskNumber}
-                  </Badge>
-                  <span className="text-[10px] text-slate-400">
-                    Part {part.partNumber}/{part.totalParts}
-                  </span>
-                </div>
-                <h4 className="text-xs font-bold text-slate-900 leading-snug">{part.title}</h4>
-                <div className="flex items-center justify-between mt-2.5 text-[11px]">
-                  <span className="font-semibold text-slate-700 truncate max-w-[120px]">
-                    {part.assignedInternName}
-                  </span>
-                  <span className="text-slate-500 shrink-0">{formatDate(part.dueDate)}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* In Review */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between text-xs font-bold text-amber-700 px-1">
-            <span>In review</span>
-            <span className="text-amber-500">{partsByStatus.in_review.length}</span>
-          </div>
-          <div className="space-y-2.5">
-            {partsByStatus.in_review.map((part) => (
-              <div
-                key={part.id}
-                onClick={() => {
-                  setSelectedTask(part.parentTask);
-                  setSelectedPart(part);
-                }}
-                className={`p-3 bg-white rounded-xl border cursor-pointer transition-all duration-150 hover:shadow-sm ${
-                  selectedPart?.id === part.id
-                    ? 'border-blue-500 ring-2 ring-blue-500/20'
-                    : 'border-slate-200'
-                }`}
-              >
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <Badge variant="warning" size="sm">
-                    {part.parentTask?.taskNumber}
-                  </Badge>
-                  <span className="text-[10px] text-slate-400">
-                    Part {part.partNumber}/{part.totalParts}
-                  </span>
-                </div>
-                <h4 className="text-xs font-bold text-slate-900 leading-snug">{part.title}</h4>
-                <div className="flex items-center justify-between mt-2.5 text-[11px]">
-                  <span className="font-semibold text-slate-700 truncate max-w-[120px]">
-                    {part.assignedInternName}
-                  </span>
-                  <span className="text-amber-600 font-bold shrink-0">Review pending</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Done */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between text-xs font-bold text-emerald-700 px-1">
-            <span>Done</span>
-            <span className="text-emerald-500">{partsByStatus.done.length}</span>
-          </div>
-          <div className="space-y-2.5">
-            {partsByStatus.done.map((part) => (
-              <div
-                key={part.id}
-                onClick={() => {
-                  setSelectedTask(part.parentTask);
-                  setSelectedPart(part);
-                }}
-                className={`p-3 bg-white rounded-xl border cursor-pointer transition-all duration-150 hover:shadow-sm ${
-                  selectedPart?.id === part.id
-                    ? 'border-blue-500 ring-2 ring-blue-500/20'
-                    : 'border-slate-200'
-                }`}
-              >
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <Badge variant="success" size="sm">
-                    {part.parentTask?.taskNumber}
-                  </Badge>
-                  <span className="text-[10px] text-slate-400">
-                    Part {part.partNumber}/{part.totalParts}
-                  </span>
-                </div>
-                <h4 className="text-xs font-bold text-slate-900 leading-snug">{part.title}</h4>
-                <div className="flex items-center justify-between mt-2.5 text-[11px]">
-                  <span className="font-semibold text-slate-700 truncate max-w-[120px]">
-                    {part.assignedInternName}
-                  </span>
-                  <span className="text-emerald-600 font-bold shrink-0">Approved</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+      {/* Status Filter Chips */}
+      <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800/60 rounded-xl w-fit">
+        {[
+          { key: 'all', label: 'All Parts', count: allParts.length },
+          { key: 'to_do', label: 'To Do', count: partsByStatus.to_do.length },
+          { key: 'in_progress', label: 'In Progress', count: partsByStatus.in_progress.length },
+          { key: 'in_review', label: 'In Review', count: partsByStatus.in_review.length },
+          { key: 'done', label: 'Done', count: partsByStatus.done.length },
+          { key: 'overdue', label: 'Overdue', count: partsByStatus.overdue.length },
+        ].map((f) => {
+          const isActive = statusFilter === f.key;
+          return (
+            <button
+              key={f.key}
+              type="button"
+              onClick={() => setStatusFilter(f.key)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all min-h-[36px] flex items-center gap-1.5 ${
+                isActive
+                  ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-300 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
+              }`}
+            >
+              <span>{f.label}</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${isActive ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-200' : 'bg-slate-200 dark:bg-slate-700 text-slate-500'}`}>
+                {f.count}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
-      {/* Main Task Split-View Card */}
-      {selectedTask && (
-        <Card padding="lg" className="mt-6">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Left: Task Header & Parts Chain */}
-            <div className="lg:col-span-7 space-y-5">
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600">
-                    TASK DETAIL · {selectedTask.taskNumber}
-                  </span>
-                  <Badge variant={selectedTask.priority === 'high' ? 'danger' : 'primary'} size="sm">
-                    {selectedTask.priority} priority
-                  </Badge>
-                </div>
-                <h2 className="text-xl font-bold text-slate-900 mt-0.5">{selectedTask.title}</h2>
-                {selectedTask.description && (
-                  <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-                    {selectedTask.description}
-                  </p>
-                )}
-                <p className="text-[11px] text-slate-400 mt-1.5">
-                  Created by {selectedTask.creatorName || 'Lead'}. Due {formatDate(selectedTask.dueDate)}.
-                  Done only when all parts pass review.
-                </p>
+      {/* Main Content Area */}
+      {isLoading ? (
+        <div className="py-16 text-center text-xs text-slate-400 animate-pulse">
+          Loading assigned sprint tasks...
+        </div>
+      ) : tasks.length === 0 ? (
+        <EmptyState
+          icon={<CheckCircle2 className="w-8 h-8" />}
+          title="No Tasks Found"
+          description={
+            currentUser?.role === USER_ROLES.UNPAID_INTERN
+              ? "You have no assigned task parts at the moment. As work is split and delegated, your parts will appear here."
+              : "No central office tasks have been created yet. Create a task and split it into parts for your interns."
+          }
+          actionLabel={canCreate ? "Create First Task" : undefined}
+          onAction={canCreate ? () => setIsNewTaskModalOpen(true) : undefined}
+        />
+      ) : (
+        <div className="space-y-6">
+          {/* Kanban Board Columns */}
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            {/* Column 1: To Do */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-400 px-1">
+                <span>To do</span>
+                <span className="text-slate-400">{partsByStatus.to_do.length}</span>
               </div>
-
-              {/* Parts chain list */}
-              <div className="space-y-3 pt-2">
-                <span className="text-xs font-bold text-slate-800 uppercase tracking-wider block">
-                  Task Parts ({selectedTask.parts?.length || 0})
-                </span>
-                {selectedTask.parts?.map((part: any) => (
+              <div className="space-y-2.5">
+                {partsByStatus.to_do.map((part) => (
                   <div
                     key={part.id}
-                    onClick={() => setSelectedPart(part)}
-                    className={`p-3.5 rounded-xl border flex items-center justify-between cursor-pointer transition-colors ${
+                    onClick={() => {
+                      setSelectedTask(part.parentTask);
+                      setSelectedPart(part);
+                    }}
+                    className={`p-3.5 bg-white dark:bg-slate-900 rounded-xl border cursor-pointer transition-all duration-150 hover:shadow-sm ${
                       selectedPart?.id === part.id
-                        ? 'bg-blue-50/60 border-blue-300 ring-1 ring-blue-300'
-                        : 'bg-slate-50/70 border-slate-200 hover:bg-slate-50'
+                        ? 'border-blue-500 ring-2 ring-blue-500/20'
+                        : 'border-slate-200 dark:border-slate-800'
                     }`}
                   >
-                    <div>
-                      <h4 className="text-xs font-bold text-slate-900">{part.title}</h4>
-                      <p className="text-[11px] text-slate-500">
-                        {part.assignedInternName} ({part.assignedInternType || 'intern'}) · due{' '}
-                        {formatDate(part.dueDate)}
-                      </p>
-                      {part.rating && (
-                        <div className="flex items-center gap-1 mt-1">
-                          <span className="text-[11px] font-bold text-amber-500">
-                            {'★'.repeat(part.rating)}
-                          </span>
-                          {part.reviewComment && (
-                            <span className="text-[10px] text-slate-500 italic">
-                              “{part.reviewComment}”
-                            </span>
-                          )}
-                        </div>
-                      )}
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <Badge variant="default" size="sm">
+                        {part.parentTask?.taskNumber}
+                      </Badge>
+                      <span className="text-[10px] text-slate-400 font-medium">
+                        Part {part.partNumber}/{part.totalParts}
+                      </span>
                     </div>
-                    <Badge variant={part.status as any}>{part.status.replace('_', ' ')}</Badge>
+                    <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100 leading-snug">{part.title}</h4>
+                    <div className="flex items-center justify-between mt-2.5 text-[11px]">
+                      <span className="font-semibold text-slate-700 dark:text-slate-300 truncate max-w-[120px]">
+                        {part.assignedInternName || 'Unassigned'}
+                      </span>
+                      <span className="text-slate-500 dark:text-slate-400 shrink-0">{formatDate(part.dueDate)}</span>
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* Right: Deliverable Upload or Review Action */}
-            <div className="lg:col-span-5 space-y-4 bg-slate-50 p-5 rounded-xl border border-slate-200">
-              {selectedPart ? (
-                <>
-                  <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-                    <div>
-                      <h3 className="text-sm font-bold text-slate-900">{selectedPart.title}</h3>
-                      <p className="text-xs text-slate-500">
-                        Assignee: <span className="font-semibold text-slate-700">{selectedPart.assignedInternName}</span>
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {isReviewer && (
-                        <Button
-                          size="xs"
-                          variant="outline"
-                          onClick={() => {
-                            setReassignUserId(selectedPart.assignedInternId || '');
-                            setReassignDueDate(selectedPart.dueDate ? selectedPart.dueDate.split('T')[0] : '');
-                            setIsReassignModalOpen(true);
-                          }}
-                          leftIcon={<RefreshCw className="w-3 h-3" />}
-                        >
-                          Reassign
-                        </Button>
-                      )}
-
-                      {isReviewer && selectedPart.status === 'in_review' && (
-                        <Button size="xs" onClick={() => setIsReviewModalOpen(true)}>
-                          Review
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Previous Uploads List */}
-                  {selectedPart.uploads && selectedPart.uploads.length > 0 && (
-                    <div className="space-y-2">
-                      <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block">
-                        Submitted Deliverables
+            {/* Column 2: In Progress */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-xs font-bold text-blue-700 dark:text-blue-400 px-1">
+                <span>In progress</span>
+                <span className="text-blue-500">{partsByStatus.in_progress.length}</span>
+              </div>
+              <div className="space-y-2.5">
+                {partsByStatus.in_progress.map((part) => (
+                  <div
+                    key={part.id}
+                    onClick={() => {
+                      setSelectedTask(part.parentTask);
+                      setSelectedPart(part);
+                    }}
+                    className={`p-3.5 bg-white dark:bg-slate-900 rounded-xl border cursor-pointer transition-all duration-150 hover:shadow-sm ${
+                      selectedPart?.id === part.id
+                        ? 'border-blue-500 ring-2 ring-blue-500/20'
+                        : 'border-slate-200 dark:border-slate-800'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <Badge variant="primary" size="sm">
+                        {part.parentTask?.taskNumber}
+                      </Badge>
+                      <span className="text-[10px] text-slate-400 font-medium">
+                        Part {part.partNumber}/{part.totalParts}
                       </span>
-                      <div className="space-y-1.5 max-h-36 overflow-y-auto">
-                        {selectedPart.uploads.map((up: any) => (
-                          <div
-                            key={up.id}
-                            className="p-2 bg-white rounded-lg border border-slate-200 flex items-center justify-between text-xs"
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <FileText className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                              <span className="truncate font-medium text-slate-800">
-                                {up.fileName || up.urlOrPath}
-                              </span>
-                            </div>
-                            <a
-                              href={up.urlOrPath}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-blue-600 hover:text-blue-700 p-1 flex items-center gap-1 font-semibold text-[11px]"
-                            >
-                              Open <ExternalLink className="w-3 h-3" />
-                            </a>
-                          </div>
-                        ))}
-                      </div>
                     </div>
-                  )}
-
-                  {/* Submission Form for Interns / Uploaders */}
-                  <div className="space-y-3 pt-2">
-                    <span className="text-xs font-bold text-slate-800 block">
-                      Submit Work for Review (Part {selectedPart.partNumber})
-                    </span>
-
-                    {/* Deliverable Type Tabs */}
-                    <div className="grid grid-cols-3 gap-1 p-1 bg-slate-200/60 rounded-lg text-xs font-semibold">
-                      <button
-                        type="button"
-                        onClick={() => setUploadTab('file')}
-                        className={`py-1 rounded-md transition-colors ${
-                          uploadTab === 'file' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
-                        }`}
-                      >
-                        File Upload
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setUploadTab('git')}
-                        className={`py-1 rounded-md transition-colors ${
-                          uploadTab === 'git' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
-                        }`}
-                      >
-                        Git Link
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setUploadTab('doc')}
-                        className={`py-1 rounded-md transition-colors ${
-                          uploadTab === 'doc' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
-                        }`}
-                      >
-                        Doc Link
-                      </button>
+                    <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100 leading-snug">{part.title}</h4>
+                    <div className="flex items-center justify-between mt-2.5 text-[11px]">
+                      <span className="font-semibold text-slate-700 dark:text-slate-300 truncate max-w-[120px]">
+                        {part.assignedInternName || 'Unassigned'}
+                      </span>
+                      <span className="text-slate-500 dark:text-slate-400 shrink-0">{formatDate(part.dueDate)}</span>
                     </div>
-
-                    {uploadTab === 'file' && (
-                      <label className="border-2 border-dashed border-slate-300 rounded-lg p-4 flex flex-col items-center justify-center cursor-pointer hover:bg-white transition-colors">
-                        <UploadCloud className="w-6 h-6 text-slate-400 mb-1" />
-                        <span className="text-xs text-slate-600 font-medium">
-                          {selectedFile ? selectedFile.name : 'Choose deliverable file (PDF, ZIP, DOC)'}
-                        </span>
-                        <input
-                          type="file"
-                          className="hidden"
-                          onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-                        />
-                      </label>
-                    )}
-
-                    {uploadTab === 'git' && (
-                      <Input
-                        label="Git Repository URL"
-                        placeholder="https://github.com/..."
-                        value={gitLink}
-                        onChange={(e) => setGitLink(e.target.value)}
-                      />
-                    )}
-
-                    {uploadTab === 'doc' && (
-                      <Input
-                        label="Documentation / Live URL"
-                        placeholder="https://docs.google.com/... or https://..."
-                        value={docLink}
-                        onChange={(e) => setDocLink(e.target.value)}
-                      />
-                    )}
-
-                    <Button
-                      size="sm"
-                      className="w-full mt-2"
-                      isLoading={uploadMutation.isPending}
-                      onClick={() => uploadMutation.mutate()}
-                    >
-                      Submit for review
-                    </Button>
                   </div>
-                </>
-              ) : (
-                <div className="text-center py-8 text-xs text-slate-400">
-                  Select a task part on the left to view uploads or submit work.
-                </div>
-              )}
+                ))}
+              </div>
+            </div>
+
+            {/* Column 3: In Review */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-xs font-bold text-purple-700 dark:text-purple-400 px-1">
+                <span>In review</span>
+                <span className="text-purple-500">{partsByStatus.in_review.length}</span>
+              </div>
+              <div className="space-y-2.5">
+                {partsByStatus.in_review.map((part) => (
+                  <div
+                    key={part.id}
+                    onClick={() => {
+                      setSelectedTask(part.parentTask);
+                      setSelectedPart(part);
+                    }}
+                    className={`p-3.5 bg-white dark:bg-slate-900 rounded-xl border cursor-pointer transition-all duration-150 hover:shadow-sm ${
+                      selectedPart?.id === part.id
+                        ? 'border-purple-500 ring-2 ring-purple-500/20'
+                        : 'border-slate-200 dark:border-slate-800'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <Badge variant="purple" size="sm">
+                        {part.parentTask?.taskNumber}
+                      </Badge>
+                      <span className="text-[10px] text-slate-400 font-medium">
+                        Part {part.partNumber}/{part.totalParts}
+                      </span>
+                    </div>
+                    <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100 leading-snug">{part.title}</h4>
+                    <div className="flex items-center justify-between mt-2.5 text-[11px]">
+                      <span className="font-semibold text-slate-700 dark:text-slate-300 truncate max-w-[120px]">
+                        {part.assignedInternName}
+                      </span>
+                      <span className="text-purple-600 font-bold shrink-0">Proof Submitted</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Column 4: Done / Overdue */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-xs font-bold text-emerald-700 dark:text-emerald-400 px-1">
+                <span>Done ({partsByStatus.done.length})</span>
+                {partsByStatus.overdue.length > 0 && (
+                  <span className="text-rose-600 font-bold">
+                    {partsByStatus.overdue.length} Overdue
+                  </span>
+                )}
+              </div>
+              <div className="space-y-2.5">
+                {partsByStatus.overdue.map((part) => (
+                  <div
+                    key={part.id}
+                    onClick={() => {
+                      setSelectedTask(part.parentTask);
+                      setSelectedPart(part);
+                    }}
+                    className="p-3.5 bg-rose-50/50 dark:bg-rose-950/20 rounded-xl border border-rose-300 dark:border-rose-900 cursor-pointer"
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <Badge variant="danger" size="sm">
+                        OVERDUE
+                      </Badge>
+                      <span className="text-[10px] text-rose-500 font-bold">
+                        {part.parentTask?.taskNumber}
+                      </span>
+                    </div>
+                    <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100 leading-snug">{part.title}</h4>
+                    <div className="flex items-center justify-between mt-2.5 text-[11px]">
+                      <span className="font-semibold text-slate-700 dark:text-slate-300 truncate max-w-[120px]">
+                        {part.assignedInternName}
+                      </span>
+                      <span className="text-rose-600 font-bold shrink-0">{formatDate(part.dueDate)}</span>
+                    </div>
+                  </div>
+                ))}
+
+                {partsByStatus.done.map((part) => (
+                  <div
+                    key={part.id}
+                    onClick={() => {
+                      setSelectedTask(part.parentTask);
+                      setSelectedPart(part);
+                    }}
+                    className={`p-3.5 bg-white dark:bg-slate-900 rounded-xl border cursor-pointer opacity-80 hover:opacity-100 transition-all ${
+                      selectedPart?.id === part.id
+                        ? 'border-emerald-500 ring-2 ring-emerald-500/20'
+                        : 'border-slate-200 dark:border-slate-800'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <Badge variant="success" size="sm">
+                        Done
+                      </Badge>
+                      {part.rating && (
+                        <span className="text-[11px] font-bold text-amber-500">
+                          {'★'.repeat(part.rating)}
+                        </span>
+                      )}
+                    </div>
+                    <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100 line-through text-slate-500 leading-snug">
+                      {part.title}
+                    </h4>
+                    <div className="flex items-center justify-between mt-2 text-[11px]">
+                      <span className="text-slate-500 dark:text-slate-400">{part.assignedInternName}</span>
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
-        </Card>
+
+          {/* Selected Task & Part Deep Dive */}
+          {selectedTask && (
+            <Card padding="lg" className="border-t-4 border-t-blue-600">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <Badge variant="primary" size="sm">
+                      {selectedTask.taskNumber}
+                    </Badge>
+                    <Badge variant={selectedTask.priority === 'high' ? 'danger' : 'default'} size="sm">
+                      {selectedTask.priority?.toUpperCase()} PRIORITY
+                    </Badge>
+                  </div>
+                  <h2 className="text-lg font-black text-slate-900 dark:text-slate-100">
+                    {selectedTask.title}
+                  </h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-2xl">
+                    {selectedTask.description || 'No description provided.'}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3 shrink-0">
+                  <div className="text-right">
+                    <span className="text-[10px] text-slate-400 font-semibold uppercase block">Target Due Date</span>
+                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                      {formatDate(selectedTask.dueDate)}
+                    </span>
+                  </div>
+                  <Badge variant={selectedTask.status === 'done' ? 'success' : 'default'} size="md">
+                    {selectedTask.status === 'done' ? 'All Parts Complete' : 'In Progress'}
+                  </Badge>
+                </div>
+              </div>
+
+              {/* Task Parts List & Active Part Actions */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-6">
+                {/* Left: Chain of Parts */}
+                <div className="lg:col-span-7 space-y-3">
+                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    Task Parts Breakdown ({selectedTask.parts?.length || 0})
+                  </h3>
+
+                  <div className="space-y-2">
+                    {selectedTask.parts?.map((part: any) => (
+                      <div
+                        key={part.id}
+                        onClick={() => setSelectedPart(part)}
+                        className={`p-3.5 rounded-xl border flex items-center justify-between cursor-pointer transition-colors ${
+                          selectedPart?.id === part.id
+                            ? 'bg-blue-50/70 dark:bg-blue-950/30 border-blue-400 dark:border-blue-700 ring-1 ring-blue-400'
+                            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                        }`}
+                      >
+                        <div>
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <span className="text-xs font-bold text-slate-900 dark:text-slate-100">
+                              Part {part.partNumber}: {part.title}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                            {part.assignedInternName} · Due {formatDate(part.dueDate)}
+                          </p>
+                          {part.rating && (
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <span className="text-amber-500 text-xs font-bold">
+                                {'★'.repeat(part.rating)}
+                              </span>
+                              {part.reviewComment && (
+                                <span className="text-[10px] text-slate-500 italic">
+                                  “{part.reviewComment}”
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        <Badge
+                          variant={
+                            part.status === 'done'
+                              ? 'success'
+                              : part.status === 'in_review'
+                              ? 'purple'
+                              : part.status === 'overdue'
+                              ? 'danger'
+                              : 'default'
+                          }
+                          size="sm"
+                        >
+                          {part.status?.replace('_', ' ').toUpperCase()}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Right: Selected Part Actions / Proof of Work */}
+                <div className="lg:col-span-5 bg-slate-50 dark:bg-slate-800/40 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-4">
+                  {selectedPart ? (
+                    <>
+                      <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700/60 pb-3">
+                        <div>
+                          <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                            Part {selectedPart.partNumber}: {selectedPart.title}
+                          </h4>
+                          <span className="text-xs text-slate-500 dark:text-slate-400">
+                            Assignee: <strong className="text-slate-700 dark:text-slate-300">{selectedPart.assignedInternName}</strong>
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {isReviewer && (
+                            <Button
+                              size="xs"
+                              variant="outline"
+                              onClick={() => {
+                                setReassignUserId(selectedPart.assignedInternId || '');
+                                setReassignDueDate(selectedPart.dueDate ? selectedPart.dueDate.split('T')[0] : '');
+                                setIsReassignModalOpen(true);
+                              }}
+                              leftIcon={<RefreshCw className="w-3 h-3" />}
+                            >
+                              Reassign
+                            </Button>
+                          )}
+
+                          {isReviewer && selectedPart.status === 'in_review' && (
+                            <Button size="xs" onClick={() => setIsReviewModalOpen(true)}>
+                              Review Proof
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Submitted Deliverables List */}
+                      {selectedPart.uploads && selectedPart.uploads.length > 0 && (
+                        <div className="space-y-2">
+                          <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider block">
+                            Submitted Proof of Work
+                          </span>
+                          <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                            {selectedPart.uploads.map((up: any) => (
+                              <div
+                                key={up.id}
+                                className="p-2.5 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs"
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <FileText className="w-4 h-4 text-blue-600 shrink-0" />
+                                  <span className="truncate font-medium text-slate-800 dark:text-slate-200">
+                                    {up.fileName || up.urlOrPath}
+                                  </span>
+                                </div>
+                                <a
+                                  href={up.urlOrPath}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-blue-600 hover:text-blue-700 p-1 flex items-center gap-1 font-semibold text-[11px]"
+                                >
+                                  Open <ExternalLink className="w-3 h-3" />
+                                </a>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Submission Section */}
+                      <div className="space-y-3 pt-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                            Submit Deliverable Proof
+                          </span>
+                          <span className="text-[10px] text-slate-400">File, Git repo, or documentation</span>
+                        </div>
+
+                        {/* Upload Method Tabs */}
+                        <div className="grid grid-cols-3 gap-1 bg-slate-200/60 dark:bg-slate-700/60 p-1 rounded-lg text-xs font-semibold">
+                          <button
+                            type="button"
+                            onClick={() => setUploadTab('file')}
+                            className={`py-1 rounded-md transition-colors ${
+                              uploadTab === 'file' ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs' : 'text-slate-600 dark:text-slate-400'
+                            }`}
+                          >
+                            File Upload
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setUploadTab('git')}
+                            className={`py-1 rounded-md transition-colors ${
+                              uploadTab === 'git' ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs' : 'text-slate-600 dark:text-slate-400'
+                            }`}
+                          >
+                            Git Repo
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setUploadTab('doc')}
+                            className={`py-1 rounded-md transition-colors ${
+                              uploadTab === 'doc' ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs' : 'text-slate-600 dark:text-slate-400'
+                            }`}
+                          >
+                            Documentation
+                          </button>
+                        </div>
+
+                        {uploadTab === 'file' && (
+                          <div className="border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl p-4 text-center bg-white dark:bg-slate-900">
+                            <UploadCloud className="w-6 h-6 text-slate-400 mx-auto mb-1.5" />
+                            <label className="text-xs text-blue-600 font-semibold cursor-pointer hover:underline block">
+                              <span>Choose file to upload</span>
+                              <input
+                                type="file"
+                                className="hidden"
+                                onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                              />
+                            </label>
+                            {selectedFile ? (
+                              <span className="text-[11px] font-bold text-emerald-600 mt-1 block">
+                                Selected: {selectedFile.name}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-slate-400">PDF, ZIP, DOCX, or images</span>
+                            )}
+                          </div>
+                        )}
+
+                        {uploadTab === 'git' && (
+                          <Input
+                            placeholder="https://github.com/org/repo/pull/12"
+                            value={gitLink}
+                            onChange={(e) => setGitLink(e.target.value)}
+                            className="text-xs bg-white dark:bg-slate-900"
+                          />
+                        )}
+
+                        {uploadTab === 'doc' && (
+                          <Input
+                            placeholder="https://docs.google.com/document/d/..."
+                            value={docLink}
+                            onChange={(e) => setDocLink(e.target.value)}
+                            className="text-xs bg-white dark:bg-slate-900"
+                          />
+                        )}
+
+                        <Button
+                          size="sm"
+                          isLoading={uploadMutation.isPending}
+                          disabled={
+                            uploadMutation.isPending ||
+                            (uploadTab === 'file' && !selectedFile) ||
+                            (uploadTab === 'git' && !gitLink.trim()) ||
+                            (uploadTab === 'doc' && !docLink.trim())
+                          }
+                          onClick={() => uploadMutation.mutate()}
+                          className="w-full min-h-[44px]"
+                        >
+                          Submit Part for Review
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-center py-12 text-xs text-slate-400">
+                      Select a task part to view details and submit proof.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </Card>
+          )}
+        </div>
       )}
 
-      {/* NEW TASK MODAL */}
+      {/* STEP-BY-STEP TASK CREATION MODAL */}
       <Modal
         isOpen={isNewTaskModalOpen}
         onClose={() => setIsNewTaskModalOpen(false)}
-        title="Create New Task"
-        description="Define a parent task and split it into parts for assigned interns."
+        title="Create New Task (Step-by-Step)"
+        description="Split work into parts line-by-line and delegate to interns."
         maxWidth="2xl"
       >
-        <div className="space-y-4">
-          <Input
-            label="Task Title *"
-            placeholder="e.g. Wi-Fi survey report or College events website"
-            value={newTaskTitle}
-            onChange={(e) => setNewTaskTitle(e.target.value)}
-          />
-
-          <Textarea
-            label="Description & Acceptance Criteria"
-            placeholder="Objectives, reference links, and expected outcome..."
-            rows={2}
-            value={newTaskDescription}
-            onChange={(e) => setNewTaskDescription(e.target.value)}
-          />
-
-          <div className="grid grid-cols-2 gap-4">
-            <Select
-              label="Priority"
-              value={newTaskPriority}
-              onChange={(e) => setNewTaskPriority(e.target.value as TaskPriority)}
-              options={[
-                { value: TASK_PRIORITIES.LOW, label: 'Low' },
-                { value: TASK_PRIORITIES.MEDIUM, label: 'Medium' },
-                { value: TASK_PRIORITIES.HIGH, label: 'High' },
-              ]}
-            />
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Task Due Date *
-              </label>
-              <input
-                type="date"
-                value={newTaskDueDate}
-                onChange={(e) => setNewTaskDueDate(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 py-2 px-3 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-          </div>
-
-          {/* Task Parts Chain Builder */}
-          <div className="space-y-3 pt-2 border-t border-slate-100">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-800">
-                Task Parts ({newTaskParts.length})
-              </span>
-              <button
-                type="button"
-                onClick={() =>
-                  setNewTaskParts((prev) => [
-                    ...prev,
-                    {
-                      title: `Part ${prev.length + 1}: `,
-                      assignedInternId: users[0]?.id || '',
-                      dueDate: newTaskDueDate,
-                    },
-                  ])
-                }
-                className="text-xs font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1"
+        <div className="space-y-5">
+          {/* Step Indicator Header */}
+          <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+            {[
+              { num: 1, label: 'What' },
+              { num: 2, label: 'Who & Parts' },
+              { num: 3, label: 'When & Priority' },
+            ].map((s) => (
+              <div
+                key={s.num}
+                className={`flex items-center gap-2 text-xs font-bold ${
+                  creationStep === s.num
+                    ? 'text-blue-600 dark:text-blue-400'
+                    : creationStep > s.num
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-slate-400'
+                }`}
               >
-                <Plus className="w-3.5 h-3.5" /> Add Part
-              </button>
-            </div>
-
-            <div className="space-y-2.5 max-h-52 overflow-y-auto">
-              {newTaskParts.map((part, index) => (
-                <div
-                  key={index}
-                  className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2"
+                <span
+                  className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${
+                    creationStep === s.num
+                      ? 'bg-blue-600 text-white'
+                      : creationStep > s.num
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
+                  }`}
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <input
-                      type="text"
-                      placeholder={`Part ${index + 1} title (e.g. Network map)`}
-                      value={part.title}
-                      onChange={(e) => {
-                        const updated = [...newTaskParts];
-                        updated[index].title = e.target.value;
-                        setNewTaskParts(updated);
-                      }}
-                      className="flex-1 bg-white border border-slate-300 rounded-lg py-1.5 px-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    />
+                  {creationStep > s.num ? '✓' : s.num}
+                </span>
+                <span>{s.label}</span>
+              </div>
+            ))}
+          </div>
 
-                    {newTaskParts.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setNewTaskParts(newTaskParts.filter((_, i) => i !== index))
-                        }
-                        className="text-slate-400 hover:text-rose-600 p-1"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
+          {/* STEP 1: WHAT */}
+          {creationStep === 1 && (
+            <div className="space-y-4">
+              <Input
+                label="Task Title *"
+                placeholder="e.g. Wi-Fi Infrastructure Audit & Security Report"
+                value={newTaskTitle}
+                onChange={(e) => setNewTaskTitle(e.target.value)}
+                required
+                className="min-h-[44px]"
+              />
 
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <Select
-                      value={part.assignedInternId}
-                      onChange={(e) => {
-                        const updated = [...newTaskParts];
-                        updated[index].assignedInternId = e.target.value;
-                        setNewTaskParts(updated);
-                      }}
-                      options={users.map((u: any) => ({
-                        value: u.id,
-                        label: `${u.name} (${u.role.replace('_', ' ')})`,
-                      }))}
-                      className="text-xs py-1.5"
-                    />
+              <Textarea
+                label="Description & Acceptance Criteria"
+                placeholder="Define project scope, key deliverables, and expected technical standards..."
+                rows={4}
+                value={newTaskDescription}
+                onChange={(e) => setNewTaskDescription(e.target.value)}
+              />
 
-                    <input
-                      type="date"
-                      value={part.dueDate}
-                      onChange={(e) => {
-                        const updated = [...newTaskParts];
-                        updated[index].dueDate = e.target.value;
-                        setNewTaskParts(updated);
-                      }}
-                      className="bg-white border border-slate-300 rounded-lg py-1.5 px-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    />
-                  </div>
-                </div>
-              ))}
+              <div className="flex justify-end gap-2.5 pt-3">
+                <Button variant="outline" size="sm" onClick={() => setIsNewTaskModalOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={!newTaskTitle.trim()}
+                  onClick={() => setCreationStep(2)}
+                  rightIcon={<ArrowRight className="w-4 h-4" />}
+                >
+                  Next: Who & Parts
+                </Button>
+              </div>
             </div>
-          </div>
+          )}
 
-          <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-100">
-            <Button variant="outline" size="sm" onClick={() => setIsNewTaskModalOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              isLoading={createTaskMutation.isPending}
-              disabled={!newTaskTitle.trim() || createTaskMutation.isPending}
-              onClick={() => createTaskMutation.mutate()}
-            >
-              Create Task
-            </Button>
-          </div>
+          {/* STEP 2: WHO & PARTS (Line-by-line part splitter) */}
+          {creationStep === 2 && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                    Split Into Parts ({newTaskParts.length})
+                  </h4>
+                  <p className="text-[11px] text-slate-400">
+                    Every task must have at least one part assigned to an intern.
+                  </p>
+                </div>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  onClick={() =>
+                    setNewTaskParts((prev) => [
+                      ...prev,
+                      {
+                        title: `Part ${prev.length + 1}: `,
+                        assignedInternId: users[0]?.id || '',
+                        dueDate: newTaskDueDate,
+                      },
+                    ])
+                  }
+                  leftIcon={<Plus className="w-3.5 h-3.5" />}
+                >
+                  Add Part
+                </Button>
+              </div>
+
+              <div className="space-y-3 max-h-64 overflow-y-auto">
+                {newTaskParts.map((part, index) => (
+                  <div
+                    key={index}
+                    className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700/60 space-y-2"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <input
+                        type="text"
+                        placeholder={`Part ${index + 1} Title (e.g. Signal strength topology)`}
+                        value={part.title}
+                        onChange={(e) => {
+                          const updated = [...newTaskParts];
+                          updated[index].title = e.target.value;
+                          setNewTaskParts(updated);
+                        }}
+                        className="flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-2 px-3 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+
+                      {newTaskParts.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => setNewTaskParts(newTaskParts.filter((_, i) => i !== index))}
+                          className="text-slate-400 hover:text-rose-600 p-1.5"
+                          title="Remove part"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <Select
+                        value={part.assignedInternId}
+                        onChange={(e) => {
+                          const updated = [...newTaskParts];
+                          updated[index].assignedInternId = e.target.value;
+                          setNewTaskParts(updated);
+                        }}
+                        options={users.map((u: any) => ({
+                          value: u.id,
+                          label: `${u.name} (${u.role.replace('_', ' ')})`,
+                        }))}
+                      />
+
+                      <input
+                        type="date"
+                        value={part.dueDate || newTaskDueDate}
+                        onChange={(e) => {
+                          const updated = [...newTaskParts];
+                          updated[index].dueDate = e.target.value;
+                          setNewTaskParts(updated);
+                        }}
+                        className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-2 px-3 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex justify-between gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <Button variant="outline" size="sm" onClick={() => setCreationStep(1)}>
+                  <ArrowLeft className="w-4 h-4 mr-1" /> Back
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={newTaskParts.some((p) => !p.title.trim() || !p.assignedInternId)}
+                  onClick={() => setCreationStep(3)}
+                  rightIcon={<ArrowRight className="w-4 h-4" />}
+                >
+                  Next: When & Priority
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* STEP 3: WHEN & PRIORITY */}
+          {creationStep === 3 && (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                  Task Priority Level *
+                </label>
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { value: TASK_PRIORITIES.LOW, label: 'Low', color: 'border-slate-300 text-slate-700 dark:text-slate-300' },
+                    { value: TASK_PRIORITIES.MEDIUM, label: 'Medium', color: 'border-blue-400 text-blue-700 dark:text-blue-300' },
+                    { value: TASK_PRIORITIES.HIGH, label: 'High', color: 'border-rose-400 text-rose-700 dark:text-rose-300' },
+                  ].map((chip) => {
+                    const isSelected = newTaskPriority === chip.value;
+                    return (
+                      <button
+                        key={chip.value}
+                        type="button"
+                        onClick={() => setNewTaskPriority(chip.value as TaskPriority)}
+                        className={`py-3 px-4 rounded-xl border text-xs font-bold transition-all min-h-[44px] ${
+                          isSelected
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-sm ring-2 ring-blue-500/30'
+                            : `bg-white dark:bg-slate-900 ${chip.color} hover:bg-slate-50 dark:hover:bg-slate-800`
+                        }`}
+                      >
+                        {chip.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Final Task Due Date *
+                </label>
+                <input
+                  type="date"
+                  value={newTaskDueDate}
+                  onChange={(e) => setNewTaskDueDate(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 py-2.5 px-3 text-xs bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px]"
+                />
+              </div>
+
+              <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-xs text-blue-800 dark:text-blue-300">
+                <strong>Review Summary:</strong> Task "{newTaskTitle}" with {newTaskParts.length} delegated part(s). All interns assigned will be automatically notified upon creation.
+              </div>
+
+              <div className="flex justify-between gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <Button variant="outline" size="sm" onClick={() => setCreationStep(2)}>
+                  <ArrowLeft className="w-4 h-4 mr-1" /> Back
+                </Button>
+                <Button
+                  size="sm"
+                  isLoading={createTaskMutation.isPending}
+                  disabled={createTaskMutation.isPending}
+                  onClick={() => createTaskMutation.mutate()}
+                >
+                  Create & Delegate Task
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       </Modal>
 
@@ -845,18 +1115,13 @@ export const ToDoScreen: React.FC = () => {
         maxWidth="md"
       >
         <div className="space-y-4">
-          <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs space-y-1">
+          <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-lg border border-slate-200 dark:border-slate-700/60 text-xs space-y-1">
             <div>
-              Current Assignee:{' '}
-              <span className="font-bold text-slate-800">
-                {selectedPart?.assignedInternName || 'None'}
-              </span>
+              <strong className="text-slate-700 dark:text-slate-300">Current Assignee:</strong> {selectedPart?.assignedInternName}
             </div>
             <div>
-              Current Deadline:{' '}
-              <span className="font-bold text-slate-800">
-                {selectedPart?.dueDate ? formatDate(selectedPart.dueDate) : 'None'}
-              </span>
+              <strong className="text-slate-700 dark:text-slate-300">Current Due Date:</strong>{' '}
+              {selectedPart?.dueDate ? formatDate(selectedPart.dueDate) : 'None'}
             </div>
           </div>
 
@@ -864,33 +1129,36 @@ export const ToDoScreen: React.FC = () => {
             label="New Assignee *"
             value={reassignUserId}
             onChange={(e) => setReassignUserId(e.target.value)}
-            options={users.map((u: any) => ({
-              value: u.id,
-              label: `${u.name} (${u.role.replace('_', ' ')})`,
-            }))}
+            options={[
+              { value: '', label: '-- Select Intern --' },
+              ...users.map((u: any) => ({
+                value: u.id,
+                label: `${u.name} (${u.role.replace('_', ' ')})`,
+              })),
+            ]}
           />
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              New Due Date (Optional)
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+              Extended / Updated Due Date (Optional)
             </label>
             <input
               type="date"
               value={reassignDueDate}
               onChange={(e) => setReassignDueDate(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 py-2 px-3 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full rounded-lg border border-slate-300 dark:border-slate-700 py-2 px-3 text-xs bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px]"
             />
           </div>
 
           <Textarea
-            label="Reason for Reassignment (Optional)"
-            placeholder="e.g. Workload balancing or sickness cover..."
+            label="Reason for Reassignment"
+            placeholder="e.g. Workload rebalancing or subject matter expertise..."
             rows={2}
             value={reassignReason}
             onChange={(e) => setReassignReason(e.target.value)}
           />
 
-          <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-100">
+          <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
             <Button variant="outline" size="sm" onClick={() => setIsReassignModalOpen(false)}>
               Cancel
             </Button>
@@ -906,56 +1174,72 @@ export const ToDoScreen: React.FC = () => {
         </div>
       </Modal>
 
-      {/* Review Modal */}
+      {/* REVIEW TASK PART MODAL */}
       <Modal
         isOpen={isReviewModalOpen}
         onClose={() => setIsReviewModalOpen(false)}
-        title="Review Task Part"
-        description={`Submit feedback and evaluation for ${selectedPart?.title}`}
+        title="Review Deliverable Proof"
+        description={`Assess work submitted for ${selectedPart?.title}`}
+        maxWidth="md"
       >
         <div className="space-y-4">
+          <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700/60 space-y-1 text-xs">
+            <div>
+              <strong className="text-slate-700 dark:text-slate-300">Submitted by:</strong> {selectedPart?.assignedInternName}
+            </div>
+            <div>
+              <strong className="text-slate-700 dark:text-slate-300">Submitted at:</strong>{' '}
+              {selectedPart?.submittedAt ? new Date(selectedPart.submittedAt).toLocaleString() : 'Recently'}
+            </div>
+          </div>
+
           <div>
-            <label className="text-xs font-semibold text-slate-700 block mb-1.5">
-              Rating (1 to 5 Stars)
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+              Deliverable Quality Rating (1 to 5 Stars) *
             </label>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2">
               {[1, 2, 3, 4, 5].map((star) => (
                 <button
                   key={star}
                   type="button"
                   onClick={() => setReviewRating(star)}
-                  className={`p-1.5 rounded-md ${
-                    reviewRating >= star ? 'text-amber-500' : 'text-slate-300'
+                  className={`text-2xl transition-transform hover:scale-110 p-1 ${
+                    reviewRating >= star ? 'text-amber-500' : 'text-slate-300 dark:text-slate-600'
                   }`}
                 >
-                  <Star className="w-6 h-6 fill-current" />
+                  ★
                 </button>
               ))}
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-300 ml-2">
+                {reviewRating} of 5 Stars
+              </span>
             </div>
           </div>
 
           <Textarea
-            label="Feedback comment *"
-            placeholder="Guidance, praise, or revision notes..."
+            label="Reviewer Comments & Feedback"
+            placeholder="Feedback for the intern, improvements required, or recognition of quality..."
+            rows={3}
             value={reviewComment}
             onChange={(e) => setReviewComment(e.target.value)}
           />
 
-          <div className="flex justify-end gap-2.5 pt-3">
+          <div className="flex justify-between gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
             <Button
-              variant="outline"
               size="sm"
+              variant="danger"
               isLoading={reviewMutation.isPending}
               onClick={() => reviewMutation.mutate('send_back')}
             >
-              Request Changes (Send back)
+              Request Revisions
             </Button>
             <Button
               size="sm"
+              variant="primary"
               isLoading={reviewMutation.isPending}
               onClick={() => reviewMutation.mutate('approve')}
             >
-              Approve (Done)
+              Approve & Mark Done
             </Button>
           </div>
         </div>

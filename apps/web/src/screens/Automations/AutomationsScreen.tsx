@@ -40,7 +40,7 @@ export const AutomationsScreen: React.FC = () => {
 
   // Test email state
   const [isTestEmailModalOpen, setIsTestEmailModalOpen] = useState(false);
-  const [testEmailAddress, setTestEmailAddress] = useState('manohar@softwarehub2.org');
+  const [testEmailAddress, setTestEmailAddress] = useState('admin@softwarehub2.org');
   const [testEventType, setTestEventType] = useState('welcome_user');
 
   // Fetch automations & real metrics

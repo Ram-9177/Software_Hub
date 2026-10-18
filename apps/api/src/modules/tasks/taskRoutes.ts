@@ -11,7 +11,12 @@ const router = Router();
 router.use(authenticateToken);
 
 router.get('/', getTasks);
-router.post('/', requireRole(USER_ROLES.ADMIN, USER_ROLES.LEAD), validateBody(createTaskSchema), createTask);
+router.post(
+  '/',
+  requireRole(USER_ROLES.ADMIN, USER_ROLES.LEAD, USER_ROLES.PAID_INTERN),
+  validateBody(createTaskSchema),
+  createTask
+);
 router.post('/parts/:partId/upload', upload.single('file'), uploadPartWork);
 router.post(
   '/parts/:partId/review',

@@ -4,6 +4,15 @@ import { db } from '../../config/database.js';
 
 let transporter: nodemailer.Transporter | null = null;
 
+export function isSmtpConfigured(): boolean {
+  return Boolean(
+    ENV.SMTP_HOST &&
+    ENV.SMTP_HOST !== 'mock' &&
+    ENV.SMTP_USER &&
+    ENV.SMTP_PASS
+  );
+}
+
 export function getEmailTransporter(): nodemailer.Transporter {
   if (!transporter) {
     transporter = nodemailer.createTransport({
@@ -23,121 +32,169 @@ export function getEmailTransporter(): nodemailer.Transporter {
 }
 
 export interface SendEmailOptions {
-  eventType: string;
+  ruleKey?: string;
+  eventType?: string;
   recipientEmail: string;
   recipientName?: string;
+  recipientUserId?: string;
   variables: Record<string, string>;
-  automationId?: string;
+  idempotencyKey?: string;
+  attachments?: Array<{
+    filename: string;
+    content: Buffer;
+    contentType?: string;
+  }>;
 }
 
-export async function sendSystemNotification(options: SendEmailOptions): Promise<{
+export interface SendResult {
   success: boolean;
   logId: string;
-  status: 'delivered' | 'failed';
+  status: 'delivered' | 'failed' | 'skipped';
   error?: string;
-}> {
+}
+
+/**
+ * Background email delivery with idempotency, user muting checks, and retries with backoff.
+ */
+export async function sendSystemNotification(options: SendEmailOptions): Promise<SendResult> {
   const logId = `elog-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  const cleanEmail = options.recipientEmail.trim().toLowerCase();
 
-  try {
-    // 1. Fetch template from email_templates or automations
-    const template = await db('email_templates')
-      .where({ event_type: options.eventType })
-      .first();
+  // 1. Check user muting preference
+  if (options.recipientUserId || cleanEmail) {
+    const user = options.recipientUserId
+      ? await db('users').where({ id: options.recipientUserId }).first()
+      : await db('users').whereRaw('LOWER(email) = ?', [cleanEmail]).first();
 
-    let subject = `Software Hub 2.0 Notification — ${options.eventType}`;
-    let body = `Hello ${options.recipientName || 'Member'},\n\nYou have a new notification from Software Hub 2.0.`;
-    let senderName = 'Software Hub 2.0';
+    if (user?.email_notifications_muted) {
+      console.log(`[EmailService] User ${cleanEmail} has muted email notifications. Skipping.`);
+      return { success: true, logId, status: 'skipped', error: 'User muted notifications' };
+    }
+  }
 
-    if (template) {
-      if (!template.is_enabled) {
-        console.log(`[EmailService] Template ${options.eventType} is disabled. Skipping.`);
-        return { success: false, logId, status: 'failed', error: 'Template is disabled' };
+  const ruleKey = options.ruleKey || options.eventType || 'general';
+
+  // 2. Check automation rule enabled status & template
+  const automation = await db('automations').where({ key: ruleKey }).first();
+  if (automation && !automation.is_enabled) {
+    console.log(`[EmailService] Rule ${ruleKey} is disabled by administrator. Skipping.`);
+    return { success: true, logId, status: 'skipped', error: 'Automation rule disabled' };
+  }
+
+  // 3. Idempotency Check: Don't send same email twice
+  const idempotencyKey = options.idempotencyKey || `${ruleKey}:${cleanEmail}:${Date.now()}`;
+  const existingLog = await db('email_logs')
+    .where({ idempotency_key: idempotencyKey, status: 'delivered' })
+    .first();
+
+  if (existingLog) {
+    console.log(`[EmailService] Idempotency match for key ${idempotencyKey}. Email already sent.`);
+    return { success: true, logId: existingLog.id, status: 'delivered' };
+  }
+
+  // 4. Resolve Subject and Body Template
+  let subject = automation?.email_subject_template || `Central Office Notification — ${ruleKey}`;
+  let body = automation?.email_body_template || `Hello {{recipient_name}},\n\nYou have an official notification from the Central Office.`;
+  const senderName = 'Software Hub 2.0 Central Office';
+
+  // Fallback check in email_templates if needed
+  if (!automation) {
+    const tmpl = await db('email_templates').where({ event_type: options.ruleKey }).first();
+    if (tmpl) {
+      if (!tmpl.is_enabled) {
+        return { success: true, logId, status: 'skipped', error: 'Template is disabled' };
       }
-      subject = template.subject;
-      body = template.body;
-      senderName = template.sender_display_name || 'Software Hub 2.0';
+      subject = tmpl.subject;
+      body = tmpl.body;
     }
+  }
 
-    // 2. Interpolate variables (e.g. {{task_title}} -> options.variables['task_title'])
-    const allVars: Record<string, string> = {
-      system_name: 'Software Hub 2.0',
-      recipient_name: options.recipientName || 'Member',
-      action_url: `${ENV.CLIENT_ORIGIN}`,
-      ...options.variables,
-    };
+  // Interpolate Variables
+  const allVars: Record<string, string> = {
+    system_name: 'Software Hub 2.0 Command Center',
+    recipient_name: options.recipientName || 'Intern / Member',
+    action_url: ENV.CLIENT_ORIGIN || 'http://localhost:5173',
+    ...options.variables,
+  };
 
-    for (const [key, val] of Object.entries(allVars)) {
-      const regex = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
-      subject = subject.replace(regex, val);
-      body = body.replace(regex, val);
-    }
+  for (const [key, val] of Object.entries(allVars)) {
+    const regex = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
+    const singleRegex = new RegExp(`\\{${key}\\}`, 'g');
+    subject = subject.replace(regex, val).replace(singleRegex, val);
+    body = body.replace(regex, val).replace(singleRegex, val);
+  }
 
-    // 3. Send email via transporter
-    const client = getEmailTransporter();
-    
-    // In dev / mock smtp, attempt send or simulate robust delivery
-    let deliverySuccess = true;
-    let errorMessage: string | null = null;
+  const htmlBody = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 620px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background: #ffffff;">
+      <div style="border-bottom: 2px solid #2563eb; padding-bottom: 16px; margin-bottom: 20px;">
+        <h2 style="color: #0f172a; margin: 0; font-size: 19px; font-weight: 800;">${senderName}</h2>
+        <p style="color: #64748b; margin: 4px 0 0; font-size: 12px; font-weight: 500;">Official Work-Management & Central Operations Platform</p>
+      </div>
+      <div style="color: #334155; line-height: 1.65; font-size: 14px; white-space: pre-wrap;">${body}</div>
+      <div style="margin-top: 32px; padding-top: 16px; border-top: 1px solid #e2e8f0; color: #94a3b8; font-size: 11px;">
+        This automated transmission was dispatched according to University Central Office policies.
+      </div>
+    </div>
+  `;
 
+  // 5. Send with retry and exponential backoff
+  const maxAttempts = 3;
+  let attempts = 0;
+  let delivered = false;
+  let lastError: string | null = null;
+
+  while (attempts < maxAttempts && !delivered) {
+    attempts++;
     try {
-      if (ENV.NODE_ENV !== 'test' && ENV.SMTP_HOST !== 'mock') {
+      if (ENV.NODE_ENV !== 'test' && isSmtpConfigured()) {
+        const client = getEmailTransporter();
         await client.sendMail({
           from: `"${senderName}" <${ENV.SMTP_FROM}>`,
-          to: options.recipientEmail,
+          to: cleanEmail,
           subject,
           text: body,
-          html: `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 8px;">
-            <div style="margin-bottom: 20px; border-bottom: 2px solid #2563eb; padding-bottom: 12px;">
-              <h2 style="color: #1e293b; margin: 0; font-size: 18px; font-weight: 700;">${senderName}</h2>
-              <p style="color: #64748b; margin: 4px 0 0; font-size: 12px;">Official University Operations Platform</p>
-            </div>
-            <div style="color: #334155; line-height: 1.6; font-size: 14px; white-space: pre-wrap;">${body}</div>
-            <div style="margin-top: 32px; padding-top: 16px; border-top: 1px solid #e2e8f0; color: #94a3b8; font-size: 11px;">
-              This is an official system notification from Software Hub 2.0. Please do not reply directly to this automated email.
-            </div>
-          </div>`,
+          html: htmlBody,
+          attachments: options.attachments,
         });
       }
-    } catch (sendErr: any) {
-      console.warn('[EmailService] SMTP delivery attempt failed or using offline mock:', sendErr.message);
-      // If mock SMTP credentials fail, record error details
-      if (ENV.SMTP_HOST !== 'smtp.ethereal.email') {
-        deliverySuccess = false;
-        errorMessage = sendErr.message;
+      delivered = true;
+    } catch (err: any) {
+      lastError = err?.message || String(err);
+      console.warn(`[EmailService] Attempt ${attempts} failed for ${cleanEmail}: ${lastError}`);
+      if (attempts < maxAttempts) {
+        // Exponential backoff: 300ms, 900ms
+        await new Promise((r) => setTimeout(r, 300 * Math.pow(3, attempts - 1)));
       }
     }
-
-    const logStatus = deliverySuccess ? 'delivered' : 'failed';
-
-    // 4. Record in email_logs
-    await db('email_logs').insert({
-      id: logId,
-      automation_id: options.automationId || null,
-      recipient_email: options.recipientEmail,
-      subject,
-      status: logStatus,
-      error_message: errorMessage,
-      sent_at: new Date(),
-    });
-
-    return {
-      success: deliverySuccess,
-      logId,
-      status: logStatus,
-      error: errorMessage || undefined,
-    };
-  } catch (err: any) {
-    console.error('[EmailService] Fatal email error:', err);
-    await db('email_logs').insert({
-      id: logId,
-      automation_id: options.automationId || null,
-      recipient_email: options.recipientEmail,
-      subject: options.eventType,
-      status: 'failed',
-      error_message: err.message,
-      sent_at: new Date(),
-    });
-
-    return { success: false, logId, status: 'failed', error: err.message };
   }
+
+  const finalStatus = delivered ? 'delivered' : 'failed';
+
+  // 6. Record in email_logs
+  try {
+    await db('email_logs').insert({
+      id: logId,
+      rule: options.ruleKey,
+      automation_id: automation?.id || null,
+      recipient: cleanEmail,
+      recipient_email: cleanEmail,
+      subject,
+      status: finalStatus,
+      attempts,
+      error: lastError,
+      error_message: lastError,
+      sent_time: delivered ? new Date() : null,
+      sent_at: new Date(),
+      idempotency_key: idempotencyKey,
+    });
+  } catch (dbErr) {
+    console.error('[EmailService] Failed to insert email_log record:', dbErr);
+  }
+
+  return {
+    success: delivered,
+    logId,
+    status: finalStatus,
+    error: lastError || undefined,
+  };
 }

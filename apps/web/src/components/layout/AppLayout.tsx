@@ -1,46 +1,44 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Outlet, useNavigate } from 'react-router-dom';
+import { Outlet, useNavigate, useLocation, NavLink } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Menu,
-  X,
   Sun,
   Moon,
   Bell,
   CheckCheck,
-  Inbox,
-  Calendar,
-  Award,
   CheckSquare,
-  FileText,
-  ChevronRight,
-  ShieldAlert,
-  ArrowRight,
+  Home,
+  MessageSquare,
+  Clock,
+  MoreHorizontal,
+  BarChart2,
+  Award,
+  Calendar,
+  Users,
+  Zap,
+  LogOut,
+  ShieldCheck,
+  VolumeX,
+  Volume2,
 } from 'lucide-react';
 import { Sidebar, type CurrentUser } from './Sidebar.js';
-import type { UserRole } from '@command-center/shared';
 import { USER_ROLES } from '@command-center/shared';
 import { useTheme } from '../../contexts/ThemeContext.js';
 import { apiRequest } from '../../lib/api.js';
-import { Badge } from '../ui/Badge.js';
-import { Button } from '../ui/Button.js';
+import { Sheet } from '../ui/Sheet.js';
 
 interface AppLayoutProps {
   currentUser: CurrentUser;
   onLogout: () => void;
-  onSwitchUser?: (role: UserRole) => void;
 }
 
-export const AppLayout: React.FC<AppLayoutProps> = ({
-  currentUser,
-  onLogout,
-  onSwitchUser,
-}) => {
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+export const AppLayout: React.FC<AppLayoutProps> = ({ currentUser, onLogout }) => {
+  const [isMoreSheetOpen, setIsMoreSheetOpen] = useState(false);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
-  const [notifTab, setNotifTab] = useState<'notifications' | 'approvals'>('notifications');
   const notifRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const { theme, toggleTheme } = useTheme();
 
@@ -50,19 +48,15 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   // 1. Fetch live notifications
   const { data: notifData } = useQuery({
     queryKey: ['notifications'],
-    queryFn: () => apiRequest<{ unreadCount: number; notifications: any[] }>('/notifications'),
-    refetchInterval: 8000,
-  });
-
-  // 2. Fetch approval inbox if management
-  const { data: approvalData } = useQuery({
-    queryKey: ['approval-inbox'],
-    queryFn: () => apiRequest<any>('/notifications/approvals/inbox'),
-    enabled: isManagement,
+    queryFn: () =>
+      apiRequest<{ unreadCount: number; notifications: any[] }>('/notifications').catch(() => ({
+        unreadCount: 0,
+        notifications: [],
+      })),
     refetchInterval: 10000,
   });
 
-  // Mark notification read mutation
+  // Mark all notifications read
   const markReadMutation = useMutation({
     mutationFn: (id: string) =>
       apiRequest(`/notifications/${id}/read`, { method: 'PATCH' }),
@@ -71,7 +65,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
     },
   });
 
-  // Close popover on outside click
+  // Close notifications on outside click
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (notifRef.current && !notifRef.current.contains(event.target as Node)) {
@@ -84,325 +78,94 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
 
   const unreadCount = notifData?.unreadCount ?? 0;
   const notifications = notifData?.notifications ?? [];
-  const pendingApprovalsCount = approvalData?.summary?.totalPending ?? 0;
 
-  const totalBadgeCount = unreadCount + (isManagement ? pendingApprovalsCount : 0);
+  // Bottom Navigation main 5 items
+  const mainMobileTabs = [
+    { label: 'Home', path: '/', icon: Home },
+    { label: 'To-Do', path: '/todo', icon: CheckSquare },
+    { label: 'Chat', path: '/chat', icon: MessageSquare },
+    { label: 'Attendance', path: '/attendance', icon: Clock },
+  ];
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-slate-50 dark:bg-slate-950 transition-colors duration-200">
-      {/* Desktop Persistent Sidebar */}
-      <div className="hidden lg:flex h-full">
-        <Sidebar
-          currentUser={currentUser}
-          onLogout={onLogout}
-          onSwitchUser={onSwitchUser}
-        />
+    <div className="flex h-screen w-screen overflow-x-hidden overflow-y-hidden bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors duration-200">
+      {/* Desktop Persistent Sidebar (>= 1024px) */}
+      <div className="hidden lg:flex h-full shrink-0">
+        <Sidebar currentUser={currentUser} onLogout={onLogout} />
       </div>
-
-      {/* Mobile Drawer Overlay */}
-      {mobileMenuOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden flex">
-          <div
-            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs"
-            onClick={() => setMobileMenuOpen(false)}
-          />
-          <div className="relative flex-1 flex flex-col max-w-xs w-full bg-[#0e1629] z-10 animate-in slide-in-from-left duration-200">
-            <div className="absolute top-4 right-4 z-20">
-              <button
-                type="button"
-                onClick={() => setMobileMenuOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-white rounded-lg bg-slate-800"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <Sidebar
-              currentUser={currentUser}
-              onLogout={onLogout}
-              onSwitchUser={onSwitchUser}
-              onNavigate={() => setMobileMenuOpen(false)}
-            />
-          </div>
-        </div>
-      )}
 
       {/* Main Content Workspace */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
-        {/* Mobile Top Header */}
-        <header className="lg:hidden flex items-center justify-between px-4 py-3 bg-[#0e1629] text-white border-b border-slate-800">
-          <div className="flex items-center gap-2.5">
-            <button
-              type="button"
-              onClick={() => setMobileMenuOpen(true)}
-              className="p-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg"
-            >
-              <Menu className="w-5 h-5" />
-            </button>
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-xs text-white">
-                CC
-              </div>
-              <span className="text-xs font-bold tracking-tight">Command Center</span>
+        {/* Top Header (All viewports) */}
+        <header className="flex items-center justify-between px-4 sm:px-6 py-3 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-xl bg-blue-600 flex items-center justify-center font-bold text-xs text-white shadow-xs">
+              CC
+            </div>
+            <div>
+              <h1 className="text-xs font-bold text-slate-900 dark:text-white leading-tight">
+                Software Hub 2.0
+              </h1>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                Central Office Command Center
+              </p>
             </div>
           </div>
+
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setIsNotifOpen(!isNotifOpen)}
-              className="relative p-1.5 text-slate-400 hover:text-white rounded-lg"
-              title="Notifications"
-            >
-              <Bell className="w-4 h-4" />
-              {totalBadgeCount > 0 && (
-                <span className="absolute top-0.5 right-0.5 w-2.5 h-2.5 bg-rose-500 rounded-full ring-2 ring-[#0e1629]" />
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={toggleTheme}
-              className="p-1.5 text-slate-400 hover:text-white rounded-lg"
-              title="Toggle theme"
-            >
-              {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4" />}
-            </button>
-            <span className="text-xs font-semibold text-slate-300">{currentUser.name}</span>
-          </div>
-        </header>
-
-        {/* Desktop Top Header */}
-        <header className="hidden lg:flex items-center justify-between px-8 py-3 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 transition-colors">
-          <div className="flex items-center gap-3">
-            <img src="/assets/university_logo.png" alt="University Logo" className="h-6 w-auto object-contain" />
-            <div className="h-4 w-px bg-slate-200 dark:bg-slate-700" />
-            <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-              Central Office • Software Hub 2.0 Command Center
-            </span>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {/* Notification Bell Button */}
+            {/* Notification Bell */}
             <div className="relative" ref={notifRef}>
               <button
                 type="button"
                 onClick={() => setIsNotifOpen(!isNotifOpen)}
-                className="relative p-2 rounded-xl border border-slate-200 dark:border-slate-750 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-750 transition-colors"
-                title="Central Office Notifications & Approvals"
+                className="relative p-2 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+                title="Notifications"
+                aria-label="View notifications"
               >
                 <Bell className="w-4 h-4" />
-                {totalBadgeCount > 0 && (
-                  <span className="absolute -top-1 -right-1 px-1.5 py-0.2 bg-rose-600 text-white font-bold text-[10px] rounded-full ring-2 ring-white dark:ring-slate-900">
-                    {totalBadgeCount > 9 ? '9+' : totalBadgeCount}
-                  </span>
+                {unreadCount > 0 && (
+                  <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full ring-2 ring-white dark:ring-slate-900" />
                 )}
               </button>
 
               {/* Notification Popover Dropdown */}
               {isNotifOpen && (
-                <div className="absolute right-0 mt-2 w-96 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-                  {/* Popover Header */}
+                <div className="absolute right-0 mt-2 w-80 sm:w-96 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
                   <div className="p-3.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/70 dark:bg-slate-800/50">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider">
-                        Command Hub
-                      </span>
-                      {unreadCount > 0 && (
-                        <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300">
-                          {unreadCount} new
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {unreadCount > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => markReadMutation.mutate('all')}
-                          className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 flex items-center gap-1"
-                          title="Mark all as read"
-                        >
-                          <CheckCheck className="w-3.5 h-3.5" /> Mark read
-                        </button>
-                      )}
-                    </div>
+                    <span className="text-xs font-bold text-slate-900 dark:text-slate-100">
+                      Notifications
+                    </span>
+                    {unreadCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => markReadMutation.mutate('all')}
+                        className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 flex items-center gap-1"
+                      >
+                        <CheckCheck className="w-3.5 h-3.5" /> Mark read
+                      </button>
+                    )}
                   </div>
 
-                  {/* Tabs if Admin/Lead */}
-                  {isManagement && (
-                    <div className="flex border-b border-slate-200 dark:border-slate-800 text-xs font-semibold bg-slate-50/40 dark:bg-slate-800/30">
-                      <button
-                        type="button"
-                        onClick={() => setNotifTab('notifications')}
-                        className={`flex-1 py-2 text-center border-b-2 transition-colors ${
-                          notifTab === 'notifications'
-                            ? 'border-blue-600 text-blue-600 dark:text-blue-400 font-bold'
-                            : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-slate-300'
-                        }`}
-                      >
-                        Updates ({notifications.length})
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setNotifTab('approvals')}
-                        className={`flex-1 py-2 text-center border-b-2 transition-colors flex items-center justify-center gap-1.5 ${
-                          notifTab === 'approvals'
-                            ? 'border-blue-600 text-blue-600 dark:text-blue-400 font-bold'
-                            : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-slate-300'
-                        }`}
-                      >
-                        <Inbox className="w-3.5 h-3.5" />
-                        Approval Inbox
-                        {pendingApprovalsCount > 0 && (
-                          <span className="w-2 h-2 rounded-full bg-amber-500" />
-                        )}
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Popover Content */}
-                  <div className="max-h-96 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 text-xs">
-                    {notifTab === 'notifications' && (
-                      <>
-                        {notifications.length === 0 ? (
-                          <div className="p-8 text-center text-slate-400">
-                            <Bell className="w-8 h-8 text-slate-300 dark:text-slate-700 mx-auto mb-2" />
-                            <p className="font-semibold text-slate-700 dark:text-slate-300 text-xs">
-                              You're all caught up!
-                            </p>
-                            <p className="text-[11px] mt-0.5">
-                              Central Office notifications and updates will appear here.
-                            </p>
-                          </div>
-                        ) : (
-                          notifications.map((n: any) => (
-                            <div
-                              key={n.id}
-                              onClick={() => {
-                                if (!n.is_read) markReadMutation.mutate(n.id);
-                                if (n.action_url) {
-                                  setIsNotifOpen(false);
-                                  navigate(n.action_url);
-                                }
-                              }}
-                              className={`p-3.5 transition-colors cursor-pointer flex items-start gap-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 ${
-                                !n.is_read ? 'bg-blue-50/40 dark:bg-blue-950/20' : ''
-                              }`}
-                            >
-                              <div className="mt-0.5 p-1.5 rounded-lg bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400 shrink-0">
-                                {n.type === 'leave_request' ? (
-                                  <Calendar className="w-3.5 h-3.5" />
-                                ) : n.type === 'certificate_review' ? (
-                                  <Award className="w-3.5 h-3.5" />
-                                ) : (
-                                  <CheckSquare className="w-3.5 h-3.5" />
-                                )}
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center justify-between gap-1 mb-0.5">
-                                  <span className="font-bold text-slate-900 dark:text-slate-100 truncate">
-                                    {n.title}
-                                  </span>
-                                  {!n.is_read && (
-                                    <span className="w-2 h-2 rounded-full bg-blue-600 shrink-0" />
-                                  )}
-                                </div>
-                                <p className="text-slate-600 dark:text-slate-400 line-clamp-2 leading-relaxed">
-                                  {n.message}
-                                </p>
-                                <span className="text-[10px] text-slate-400 mt-1 block">
-                                  {new Date(n.created_at).toLocaleTimeString([], {
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                    day: 'numeric',
-                                    month: 'short',
-                                  })}
-                                </span>
-                              </div>
-                            </div>
-                          ))
-                        )}
-                      </>
-                    )}
-
-                    {notifTab === 'approvals' && isManagement && (
-                      <div className="p-3 space-y-3">
-                        {/* Summary Pill Grid */}
-                        <div className="grid grid-cols-2 gap-2">
-                          <div
-                            onClick={() => {
-                              setIsNotifOpen(false);
-                              navigate('/attendance');
-                            }}
-                            className="p-2.5 rounded-xl bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800 cursor-pointer hover:bg-purple-100 transition-colors"
-                          >
-                            <span className="text-[10px] font-bold uppercase text-purple-700 dark:text-purple-300 block">
-                              Leave Requests
-                            </span>
-                            <span className="text-lg font-black text-purple-900 dark:text-purple-100">
-                              {approvalData?.summary?.pendingLeavesCount ?? 0}
-                            </span>
-                          </div>
-
-                          <div
-                            onClick={() => {
-                              setIsNotifOpen(false);
-                              navigate('/tracker');
-                            }}
-                            className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 cursor-pointer hover:bg-blue-100 transition-colors"
-                          >
-                            <span className="text-[10px] font-bold uppercase text-blue-700 dark:text-blue-300 block">
-                              Task Reviews
-                            </span>
-                            <span className="text-lg font-black text-blue-900 dark:text-blue-100">
-                              {approvalData?.summary?.pendingTasksCount ?? 0}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Quick links to review workflows */}
-                        <div className="space-y-1.5 pt-1">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setIsNotifOpen(false);
-                              navigate('/attendance');
-                            }}
-                            className="w-full text-left p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-between transition-colors"
-                          >
-                            <span className="font-semibold text-slate-700 dark:text-slate-300">
-                              Review Leave & WFH
-                            </span>
-                            <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setIsNotifOpen(false);
-                              navigate('/interns');
-                            }}
-                            className="w-full text-left p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-between transition-colors"
-                          >
-                            <span className="font-semibold text-slate-700 dark:text-slate-300">
-                              Review Intern Promotions (1–15)
-                            </span>
-                            <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setIsNotifOpen(false);
-                              navigate('/certificates');
-                            }}
-                            className="w-full text-left p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-between transition-colors"
-                          >
-                            <span className="font-semibold text-slate-700 dark:text-slate-300">
-                              Issue & Reissue Certificates
-                            </span>
-                            <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                          </button>
-                        </div>
+                  <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                    {notifications.length === 0 ? (
+                      <div className="p-6 text-center text-xs text-slate-400 italic">
+                        No new notifications
                       </div>
+                    ) : (
+                      notifications.map((n: any) => (
+                        <div
+                          key={n.id}
+                          className={`p-3 text-xs transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/60 ${
+                            !n.is_read ? 'bg-blue-50/40 dark:bg-blue-950/20' : ''
+                          }`}
+                        >
+                          <h4 className="font-bold text-slate-900 dark:text-white">{n.title}</h4>
+                          <p className="text-slate-600 dark:text-slate-300 mt-0.5">{n.message}</p>
+                          <span className="text-[10px] text-slate-400 mt-1 block">
+                            {new Date(n.created_at).toLocaleString()}
+                          </span>
+                        </div>
+                      ))
                     )}
                   </div>
                 </div>
@@ -413,25 +176,20 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
             <button
               type="button"
               onClick={toggleTheme}
+              className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
               title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} mode`}
-              className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-750 bg-slate-50 dark:bg-slate-800 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-750 transition-colors flex items-center gap-2"
+              aria-label="Toggle theme"
             >
               {theme === 'dark' ? (
-                <>
-                  <Sun className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Light Mode</span>
-                </>
+                <Sun className="w-4 h-4 text-amber-400" />
               ) : (
-                <>
-                  <Moon className="w-3.5 h-3.5 text-slate-600" />
-                  <span>Dark Mode</span>
-                </>
+                <Moon className="w-4 h-4" />
               )}
             </button>
 
-            {/* User Persona Pill */}
-            <div className="flex items-center gap-2 pl-3 border-l border-slate-200 dark:border-slate-800">
-              <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+            {/* User Pill */}
+            <div className="hidden sm:flex items-center gap-2 pl-2 border-l border-slate-200 dark:border-slate-800">
+              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
                 {currentUser.name}
               </span>
               <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900">
@@ -441,11 +199,170 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
           </div>
         </header>
 
-        {/* Scrollable Viewport for Application Screens */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 bg-slate-50/70 dark:bg-slate-950 transition-colors duration-200">
+        {/* Scrollable Viewport for Screen Content */}
+        <main className="flex-1 overflow-y-auto overflow-x-hidden p-3.5 sm:p-6 lg:p-8 pb-20 lg:pb-8">
           <Outlet />
         </main>
+
+        {/* Mobile Bottom Navigation Bar (< 1024px) */}
+        <nav
+          className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 flex items-center justify-around px-2 py-1 shadow-lg pb-safe"
+          aria-label="Mobile Navigation"
+        >
+          {mainMobileTabs.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = location.pathname === tab.path;
+            return (
+              <NavLink
+                key={tab.path}
+                to={tab.path}
+                className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-xl min-h-[44px] min-w-[44px] transition-colors ${
+                  isActive
+                    ? 'text-blue-600 dark:text-blue-400 font-bold'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <Icon className={`w-5 h-5 ${isActive ? 'stroke-[2.5]' : 'stroke-2'}`} />
+                <span className="text-[10px] mt-0.5">{tab.label}</span>
+              </NavLink>
+            );
+          })}
+
+          {/* 5th Button: More Sheet Trigger */}
+          <button
+            type="button"
+            onClick={() => setIsMoreSheetOpen(true)}
+            className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-xl min-h-[44px] min-w-[44px] transition-colors ${
+              isMoreSheetOpen
+                ? 'text-blue-600 dark:text-blue-400 font-bold'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+            aria-label="Open secondary navigation menu"
+          >
+            <MoreHorizontal className="w-5 h-5" />
+            <span className="text-[10px] mt-0.5">More</span>
+          </button>
+        </nav>
       </div>
+
+      {/* "More" Bottom Sheet for secondary mobile navigation */}
+      <Sheet
+        isOpen={isMoreSheetOpen}
+        onClose={() => setIsMoreSheetOpen(false)}
+        title="Central Office Menu"
+        description={`Signed in as ${currentUser.name} (${currentUser.role})`}
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-2 text-xs font-semibold">
+            <button
+              type="button"
+              onClick={() => {
+                navigate('/tracker');
+                setIsMoreSheetOpen(false);
+              }}
+              className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-slate-200 dark:border-slate-800 text-left min-h-[44px] transition-colors"
+            >
+              <BarChart2 className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              <span>Operations Tracker</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                navigate('/certificates');
+                setIsMoreSheetOpen(false);
+              }}
+              className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-slate-200 dark:border-slate-800 text-left min-h-[44px] transition-colors"
+            >
+              <Award className="w-4 h-4 text-amber-500" />
+              <span>Certificates</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                navigate('/calendar');
+                setIsMoreSheetOpen(false);
+              }}
+              className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-slate-200 dark:border-slate-800 text-left min-h-[44px] transition-colors"
+            >
+              <Calendar className="w-4 h-4 text-emerald-500" />
+              <span>Office Calendar</span>
+            </button>
+
+            {isManagement && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigate('/interns');
+                    setIsMoreSheetOpen(false);
+                  }}
+                  className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-slate-200 dark:border-slate-800 text-left min-h-[44px] transition-colors"
+                >
+                  <Users className="w-4 h-4 text-purple-500" />
+                  <span>Roster & Interns</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigate('/automations');
+                    setIsMoreSheetOpen(false);
+                  }}
+                  className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-slate-200 dark:border-slate-800 text-left min-h-[44px] transition-colors"
+                >
+                  <Zap className="w-4 h-4 text-amber-500" />
+                  <span>Email Automations</span>
+                </button>
+              </>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                navigate('/verify');
+                setIsMoreSheetOpen(false);
+              }}
+              className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-slate-200 dark:border-slate-800 text-left min-h-[44px] transition-colors"
+            >
+              <ShieldCheck className="w-4 h-4 text-indigo-500" />
+              <span>Verify Credential</span>
+            </button>
+          </div>
+
+          <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300 min-h-[44px] p-2"
+            >
+              {theme === 'dark' ? (
+                <>
+                  <Sun className="w-4 h-4 text-amber-400" /> Light Mode
+                </>
+              ) : (
+                <>
+                  <Moon className="w-4 h-4" /> Dark Mode
+                </>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setIsMoreSheetOpen(false);
+                onLogout();
+              }}
+              className="flex items-center gap-2 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:text-rose-700 min-h-[44px] p-2"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>Sign Out</span>
+            </button>
+          </div>
+        </div>
+      </Sheet>
     </div>
   );
 };
+export default AppLayout;

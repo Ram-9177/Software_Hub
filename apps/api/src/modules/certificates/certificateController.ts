@@ -1,48 +1,185 @@
 import type { Request, Response } from 'express';
 import PDFDocument from 'pdfkit';
 import QRCode from 'qrcode';
-import path from 'path';
-import fs from 'fs';
-import { fileURLToPath } from 'url';
 import { db } from '../../config/database.js';
-import { CERTIFICATE_LEVELS, MIN_ATTENDANCE_PERCENTAGE, MIN_CORE_MARKSHEET_PERCENTAGE, USER_ROLES } from '@command-center/shared';
+import { ENV } from '../../config/env.js';
+import {
+  CERTIFICATE_LEVELS,
+  MIN_ATTENDANCE_PERCENTAGE,
+  MIN_CORE_MARKSHEET_PERCENTAGE,
+  USER_ROLES,
+} from '@command-center/shared';
 import { sendSystemNotification } from '../automations/emailService.js';
+import { logAdminAction } from '../users/userController.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+/**
+ * Generate PDF buffer for a certificate using PDFKit
+ */
+async function generateCertificatePdfBuffer(cert: {
+  certificateNumber: string;
+  internName: string;
+  category: string;
+  level: number;
+  issueDate: string;
+  attendancePercentage: number;
+  tasksCompleted: number;
+  issuedByName: string;
+  qrDataUrl: string;
+}): Promise<Buffer> {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const qrPngBuffer = await QRCode.toBuffer(cert.qrDataUrl, {
+        width: 140,
+        margin: 1,
+        color: { dark: '#0f172a', light: '#ffffff' },
+      });
 
-async function logAudit(params: {
-  userId?: string;
-  userName?: string;
-  action: string;
-  resourceType: string;
-  resourceId?: string;
-  details?: any;
-}) {
-  try {
-    await db('audit_logs').insert({
-      id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      user_id: params.userId || null,
-      user_name: params.userName || null,
-      action: params.action,
-      resource_type: params.resourceType,
-      resource_id: params.resourceId || null,
-      details: typeof params.details === 'object' ? JSON.stringify(params.details) : params.details || null,
-      created_at: new Date(),
-    });
-  } catch (err) {
-    console.error('[AuditLog] Failed to log action:', err);
-  }
+      const isCore = cert.category === 'paid' || cert.level >= 2;
+
+      // A4 Landscape: 841.89 x 595.28 points
+      const doc = new PDFDocument({
+        layout: 'landscape',
+        size: 'A4',
+        margins: { top: 0, bottom: 0, left: 0, right: 0 },
+      });
+
+      const chunks: Buffer[] = [];
+      doc.on('data', (chunk) => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', (err) => reject(err));
+
+      const pageWidth = doc.page.width;
+      const pageHeight = doc.page.height;
+
+      // Decorative double border
+      doc
+        .rect(20, 20, pageWidth - 40, pageHeight - 40)
+        .lineWidth(3)
+        .stroke(isCore ? '#1d4ed8' : '#b45309');
+
+      doc
+        .rect(26, 26, pageWidth - 52, pageHeight - 52)
+        .lineWidth(0.75)
+        .stroke('#cbd5e1');
+
+      // Corner accent marks
+      const cornerSize = 18;
+      doc.rect(20, 20, cornerSize, cornerSize).fill(isCore ? '#1d4ed8' : '#b45309');
+      doc.rect(pageWidth - 20 - cornerSize, 20, cornerSize, cornerSize).fill(isCore ? '#1d4ed8' : '#b45309');
+      doc.rect(20, pageHeight - 20 - cornerSize, cornerSize, cornerSize).fill(isCore ? '#1d4ed8' : '#b45309');
+      doc.rect(pageWidth - 20 - cornerSize, pageHeight - 20 - cornerSize, cornerSize, cornerSize).fill(isCore ? '#1d4ed8' : '#b45309');
+
+      // Header: Software Hub 2.0 Central Office
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(22)
+        .fillColor('#0f172a')
+        .text('SOFTWARE HUB 2.0', 0, 70, { align: 'center', width: pageWidth });
+
+      doc
+        .font('Helvetica')
+        .fontSize(11)
+        .fillColor('#64748b')
+        .text('CENTRAL OFFICE OPERATIONS & CREDENTIAL REGISTRY', 0, 98, {
+          align: 'center',
+          width: pageWidth,
+        });
+
+      // Title
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(18)
+        .fillColor(isCore ? '#1d4ed8' : '#b45309')
+        .text(
+          isCore ? 'CERTIFICATE OF CORE INTERNSHIP' : 'CERTIFICATE OF FOUNDATIONAL INTERNSHIP',
+          0,
+          145,
+          { align: 'center', width: pageWidth }
+        );
+
+      doc
+        .font('Helvetica')
+        .fontSize(12)
+        .fillColor('#475569')
+        .text('This is to certify that', 0, 190, { align: 'center', width: pageWidth });
+
+      // Recipient Name
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(26)
+        .fillColor('#0f172a')
+        .text(cert.internName, 0, 220, { align: 'center', width: pageWidth });
+
+      // Description text
+      const desc = isCore
+        ? `has fulfilled all requirements of the Core (Paid) Engineering Track (Level ${cert.level}), demonstrating proficiency in university operations management and technical leadership.`
+        : `has fulfilled all foundational requirements of the University Central Office Unpaid Internship Programme (Level ${cert.level}) in good standing.`;
+
+      doc
+        .font('Helvetica')
+        .fontSize(11)
+        .fillColor('#334155')
+        .text(desc, 80, 275, { align: 'center', width: pageWidth - 160, lineGap: 4 });
+
+      // Performance stats badge
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(10)
+        .fillColor('#475569')
+        .text(
+          `Verified Attendance: ${cert.attendancePercentage}%  •  Completed Deliverables: ${cert.tasksCompleted}`,
+          0,
+          340,
+          { align: 'center', width: pageWidth }
+        );
+
+      // Signatory line
+      const signY = pageHeight - 130;
+      doc.lineWidth(1).strokeColor('#94a3b8').moveTo(pageWidth - 320, signY).lineTo(pageWidth - 80, signY).stroke();
+
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(10)
+        .fillColor('#0f172a')
+        .text(cert.issuedByName || 'Director / Central Office Lead', pageWidth - 320, signY + 6, {
+          width: 240,
+          align: 'center',
+        });
+
+      doc
+        .font('Helvetica')
+        .fontSize(8.5)
+        .fillColor('#64748b')
+        .text('Authorized University Central Office Signatory', pageWidth - 320, signY + 20, {
+          width: 240,
+          align: 'center',
+        });
+
+      // Bottom left: Certificate details
+      doc.font('Helvetica').fontSize(9).fillColor('#475569');
+      doc.text(`Credential ID: ${cert.certificateNumber}`, 75, pageHeight - 110);
+      doc.text(`Issued Date: ${cert.issueDate}`, 75, pageHeight - 96);
+      doc.text(`Verify Online: ${cert.qrDataUrl}`, 75, pageHeight - 82);
+
+      // Bottom center: QR Code
+      doc.image(qrPngBuffer, 75, pageHeight - 70 - 75, { width: 70 });
+
+      doc.end();
+    } catch (err) {
+      reject(err);
+    }
+  });
 }
 
-// 1. Get all certificates (interns see only their own)
+// ----------------------------------------------------------------------
+// 1. GET ALL CERTIFICATES
+// ----------------------------------------------------------------------
 export async function getCertificates(req: Request, res: Response) {
   const currentUser = req.user!;
 
   let query = db('certificates as c')
     .leftJoin('users as u', 'c.user_id', 'u.id')
     .leftJoin('users as i', 'c.issued_by', 'i.id')
-    .leftJoin('certificate_templates as ct', 'c.template_id', 'ct.id')
     .select(
       'c.id',
       'c.certificate_number as certificateNumber',
@@ -50,22 +187,18 @@ export async function getCertificates(req: Request, res: Response) {
       'u.name as userName',
       'u.email as userEmail',
       'c.level',
-      'c.category',
-      'c.template_id as templateId',
-      'ct.title as templateTitle',
       'c.issue_date as issueDate',
       'c.status',
       'c.qr_code_data as qrCodeData',
       'c.attendance_percentage as attendancePercentage',
       'c.tasks_completed as tasksCompleted',
-      'c.reissued_from as reissuedFrom',
-      'c.reissue_reason as reissueReason',
       'i.name as issuedByName',
-      'u.marksheet_percentage as marksheetPercentage'
+      'u.marksheet_percentage as marksheetPercentage',
+      'u.marksheet_confirmed as marksheetConfirmed'
     )
     .orderBy('c.created_at', 'desc');
 
-  // If intern, can only view own certificates
+  // Interns see only their own certificates
   if (currentUser.role === USER_ROLES.UNPAID_INTERN || currentUser.role === USER_ROLES.PAID_INTERN) {
     query = query.where('c.user_id', currentUser.id);
   }
@@ -74,199 +207,109 @@ export async function getCertificates(req: Request, res: Response) {
   return res.json(certificates);
 }
 
-// 2. Get Certificate Templates (Admin & Lead)
-export async function getCertificateTemplates(req: Request, res: Response) {
-  try {
-    const templates = await db('certificate_templates')
-      .select('*')
-      .orderBy('category', 'asc');
-    
-    // Parse coordinates if stored as JSON string
-    const formatted = templates.map((t) => ({
-      ...t,
-      field_coordinates: typeof t.field_coordinates === 'string' ? JSON.parse(t.field_coordinates) : t.field_coordinates,
-    }));
-    return res.json(formatted);
-  } catch (err) {
-    console.error('[CertTemplates] Error fetching templates:', err);
-    return res.status(500).json({ message: 'Failed to fetch certificate templates' });
-  }
-}
-
-// 3. Update Certificate Template (Admin & Lead)
-export async function updateCertificateTemplate(req: Request, res: Response) {
-  const { id } = req.params;
-  const {
-    title,
-    min_attendance_percentage,
-    min_marksheet_percentage,
-    min_level,
-    authorized_signatory,
-    is_active,
-    field_coordinates,
-  } = req.body;
-
-  try {
-    const template = await db('certificate_templates').where({ id }).first();
-    if (!template) {
-      return res.status(404).json({ message: 'Certificate template not found' });
-    }
-
-    const updateData: any = { updated_at: new Date() };
-    if (title !== undefined) updateData.title = title;
-    if (min_attendance_percentage !== undefined) updateData.min_attendance_percentage = Number(min_attendance_percentage);
-    if (min_marksheet_percentage !== undefined) updateData.min_marksheet_percentage = Number(min_marksheet_percentage);
-    if (min_level !== undefined) updateData.min_level = Number(min_level);
-    if (authorized_signatory !== undefined) updateData.authorized_signatory = authorized_signatory;
-    if (is_active !== undefined) updateData.is_active = Boolean(is_active);
-    if (field_coordinates !== undefined) {
-      updateData.field_coordinates = typeof field_coordinates === 'object' ? JSON.stringify(field_coordinates) : field_coordinates;
-    }
-
-    await db('certificate_templates').where({ id }).update(updateData);
-
-    await logAudit({
-      userId: req.user?.id,
-      userName: req.user?.name,
-      action: 'UPDATE_CERTIFICATE_TEMPLATE',
-      resourceType: 'certificate_template',
-      resourceId: id,
-      details: updateData,
-    });
-
-    const updated = await db('certificate_templates').where({ id }).first();
-    return res.json({
-      message: 'Certificate template updated successfully',
-      template: {
-        ...updated,
-        field_coordinates: typeof updated.field_coordinates === 'string' ? JSON.parse(updated.field_coordinates) : updated.field_coordinates,
-      },
-    });
-  } catch (err) {
-    console.error('[CertTemplates] Update error:', err);
-    return res.status(500).json({ message: 'Failed to update certificate template' });
-  }
-}
-
-// 4. Check Eligibility
+// ----------------------------------------------------------------------
+// 2. CHECK ELIGIBILITY
+// ----------------------------------------------------------------------
 export async function checkEligibility(req: Request, res: Response) {
-  const { internId, level, templateId } = req.query;
+  const { internId, level = 1 } = req.query;
 
   const intern = await db('users').where({ id: internId as string }).first();
   if (!intern) {
     return res.status(404).json({ message: 'Intern not found' });
   }
 
-  // Find template if specified, or pick based on user is_paid/role
-  let template = null;
-  if (templateId) {
-    template = await db('certificate_templates').where({ id: templateId as string }).first();
-  }
-  if (!template) {
-    const isPaid = intern.is_paid || intern.role === USER_ROLES.PAID_INTERN;
-    template = await db('certificate_templates').where({ category: isPaid ? 'paid' : 'unpaid' }).first();
-  }
+  const reqLevel = Number(level);
+  const isCore = reqLevel === CERTIFICATE_LEVELS.LEVEL_2 || intern.role === USER_ROLES.PAID_INTERN;
 
-  // Calculate actual attendance percentage
+  // Real attendance percentage calculation from rows
   const records = await db('attendance').where({ user_id: intern.id });
   const total = records.length;
-  const present = records.filter((r) => r.status === 'present' || r.status === 'late' || r.status === 'half_day').length;
-  const attendancePct = total > 0 ? Math.round((present / total) * 100) : 95;
+  const present = records.filter((r) => r.status === 'present' || r.status === 'late').length;
+  const halfDays = records.filter((r) => r.status === 'half_day').length;
 
-  const minAttendance = template?.min_attendance_percentage ?? MIN_ATTENDANCE_PERCENTAGE;
-  const attendanceMet = attendancePct >= minAttendance;
-
-  const reqLevel = Number(level || template?.min_level || 1);
-  const minMarksheet = template?.min_marksheet_percentage ?? MIN_CORE_MARKSHEET_PERCENTAGE;
+  const attendancePct = total > 0 ? Math.round(((present + halfDays * 0.5) / total) * 100) : 0;
+  const attendanceMet = attendancePct >= MIN_ATTENDANCE_PERCENTAGE;
 
   let marksheetMet = true;
-  if (template?.category === 'paid' || reqLevel >= 2) {
+  if (isCore) {
     marksheetMet =
       Boolean(intern.marksheet_confirmed) &&
       intern.marksheet_percentage !== null &&
-      intern.marksheet_percentage >= minMarksheet;
+      Number(intern.marksheet_percentage) >= MIN_CORE_MARKSHEET_PERCENTAGE;
   }
 
-  const levelMet = (intern.current_level || 1) >= (template?.min_level || 1);
-  const eligible = attendanceMet && marksheetMet && levelMet;
+  const eligible = attendanceMet && marksheetMet;
 
   return res.json({
     internName: intern.name,
     level: reqLevel,
-    category: template?.category || (intern.is_paid ? 'paid' : 'unpaid'),
-    templateTitle: template?.title || 'Standard Certificate',
+    category: isCore ? 'paid' : 'unpaid',
     attendancePct,
-    minAttendance,
+    minAttendance: MIN_ATTENDANCE_PERCENTAGE,
     attendanceMet,
     marksheetPercentage: intern.marksheet_percentage,
-    minMarksheet,
-    marksheetConfirmed: intern.marksheet_confirmed,
+    minMarksheet: MIN_CORE_MARKSHEET_PERCENTAGE,
+    marksheetConfirmed: Boolean(intern.marksheet_confirmed),
     marksheetMet,
-    currentLevel: intern.current_level || 1,
-    minLevel: template?.min_level || 1,
-    levelMet,
     eligible,
   });
 }
 
-// 5. Issue Certificate
+// ----------------------------------------------------------------------
+// 3. ISSUE CERTIFICATE
+// ----------------------------------------------------------------------
 export async function issueCertificate(req: Request, res: Response) {
   const currentUser = req.user!;
-  const { internId, level, templateId, category: reqCategory, comments } = req.body;
+  const { internId, level = 1 } = req.body;
+
+  // Role authorization: Admin or Lead
+  if (currentUser.role !== USER_ROLES.ADMIN && currentUser.role !== USER_ROLES.LEAD) {
+    return res.status(403).json({ message: 'Only Admin and Co-Admin can issue certificates' });
+  }
 
   const intern = await db('users').where({ id: internId }).first();
   if (!intern) {
     return res.status(404).json({ message: 'Intern not found' });
   }
 
-  // Resolve template
-  let template = null;
-  if (templateId) {
-    template = await db('certificate_templates').where({ id: templateId }).first();
-  }
-  if (!template) {
-    const isPaid = reqCategory === 'paid' || intern.is_paid || intern.role === USER_ROLES.PAID_INTERN;
-    template = await db('certificate_templates').where({ category: isPaid ? 'paid' : 'unpaid' }).first();
-  }
+  const targetLevel = Number(level);
+  const isCore = targetLevel === CERTIFICATE_LEVELS.LEVEL_2 || intern.role === USER_ROLES.PAID_INTERN;
 
-  const targetCategory = template?.category || (intern.is_paid ? 'paid' : 'unpaid');
-  const targetLevel = Number(level || intern.current_level || 1);
-
-  // Calculate attendance %
+  // Strict attendance gate
   const records = await db('attendance').where({ user_id: intern.id });
   const total = records.length;
-  const present = records.filter((r) => r.status === 'present' || r.status === 'late' || r.status === 'half_day').length;
-  const attendancePct = total > 0 ? Math.round((present / total) * 100) : 95;
+  const present = records.filter((r) => r.status === 'present' || r.status === 'late').length;
+  const halfDays = records.filter((r) => r.status === 'half_day').length;
+  const attendancePct = total > 0 ? Math.round(((present + halfDays * 0.5) / total) * 100) : 0;
 
-  const minAttendance = template?.min_attendance_percentage ?? MIN_ATTENDANCE_PERCENTAGE;
-  if (attendancePct < minAttendance) {
+  if (attendancePct < MIN_ATTENDANCE_PERCENTAGE) {
     return res.status(400).json({
-      message: `Cannot issue certificate: Attendance is ${attendancePct}% (minimum required is ${minAttendance}%)`,
+      message: `Cannot issue certificate: Attendance is ${attendancePct}% (minimum required is ${MIN_ATTENDANCE_PERCENTAGE}%).`,
     });
   }
 
-  const minMarksheet = template?.min_marksheet_percentage ?? MIN_CORE_MARKSHEET_PERCENTAGE;
-  if (targetCategory === 'paid' || targetLevel >= 2) {
-    if (!intern.marksheet_confirmed || (intern.marksheet_percentage || 0) < minMarksheet) {
+  // Strict Level 2 (Core Intern) marksheet gate
+  if (isCore) {
+    if (!intern.marksheet_confirmed || (intern.marksheet_percentage || 0) < MIN_CORE_MARKSHEET_PERCENTAGE) {
       return res.status(400).json({
-        message: `Cannot issue Core (Paid) certificate: Confirmed marksheet of at least ${minMarksheet}% is required`,
+        message: `Cannot issue Core Intern Certificate: A confirmed marksheet of at least ${MIN_CORE_MARKSHEET_PERCENTAGE}% is required. Current: ${intern.marksheet_percentage || 0}%.`,
       });
     }
   }
 
-  // Count completed tasks
+  // Real count of completed parts
   const completedParts = await db('task_parts')
     .where({ assigned_intern_id: intern.id, status: 'done' })
     .count('id as count')
     .first();
-  const tasksCompleted = Number(completedParts?.count || 12);
+  const tasksCompleted = Number(completedParts?.count || 0);
 
-  // Generate certificate number: SH2-L{level}-XXXX
-  const certCount = await db('certificates').count('id as count').first();
-  const certSeq = String(Number(certCount?.count || 0) + 33).padStart(4, '0');
+  // Sequential Certificate Number
+  const certCountRecord = await db('certificates').count('id as count').first();
+  const certSeq = String(Number(certCountRecord?.count || 0) + 1).padStart(4, '0');
   const certNumber = `SH2-L${targetLevel}-${certSeq}`;
 
-  const qrData = `https://softwarehub2.org/verify/${certNumber}`;
+  const qrDataUrl = `${ENV.CLIENT_ORIGIN || 'http://localhost:5173'}/verify/${certNumber}`;
   const todayStr = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 
   const certId = `cert-${Date.now()}`;
@@ -274,69 +317,70 @@ export async function issueCertificate(req: Request, res: Response) {
     id: certId,
     certificate_number: certNumber,
     user_id: intern.id,
-    template_id: template?.id || (targetCategory === 'paid' ? 'tpl-cert-paid' : 'tpl-cert-unpaid'),
-    category: targetCategory,
     level: targetLevel,
     issue_date: todayStr,
     status: 'issued',
-    qr_code_data: qrData,
+    qr_code_data: qrDataUrl,
     attendance_percentage: attendancePct,
     tasks_completed: tasksCompleted,
     issued_by: currentUser.id,
+    created_at: new Date(),
+    updated_at: new Date(),
   });
 
-  // In-app Notification for Intern
+  // Generate PDF buffer for attachment
+  let pdfBuffer: Buffer | null = null;
   try {
-    await db('notifications').insert({
-      id: `notif-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      user_id: intern.id,
-      title: 'Official Certificate Issued',
-      message: `Congratulations ${intern.name}! Your Software Hub 2.0 Central Office Certificate (${certNumber}) has been issued.`,
-      type: 'certificate_review',
-      resource_type: 'certificate',
-      resource_id: certId,
-      action_url: '/certificates',
-      is_read: false,
-      created_at: new Date(),
+    pdfBuffer = await generateCertificatePdfBuffer({
+      certificateNumber: certNumber,
+      internName: intern.name,
+      category: isCore ? 'paid' : 'unpaid',
+      level: targetLevel,
+      issueDate: todayStr,
+      attendancePercentage: attendancePct,
+      tasksCompleted,
+      issuedByName: currentUser.name,
+      qrDataUrl,
     });
-  } catch (err) {
-    console.warn('[Notifications] Error creating cert notification:', err);
+  } catch (pdfErr) {
+    console.error('[CertPdf] Error generating certificate PDF buffer:', pdfErr);
   }
 
-  // Send Email Notification
-  try {
-    await sendSystemNotification({
-      eventType: 'certificate_issued',
+  // 10. Certificate Issued Email Automation: immediately to the intern with PDF attached
+  if (intern.email) {
+    sendSystemNotification({
+      ruleKey: 'certificate_issued',
       recipientEmail: intern.email,
       recipientName: intern.name,
+      recipientUserId: intern.id,
+      idempotencyKey: `cert_issued:${certNumber}`,
       variables: {
         intern_name: intern.name,
         certificate_number: certNumber,
-        certificate_type: template?.title || `${targetCategory.toUpperCase()} Internship Certificate`,
+        certificate_type: isCore ? 'Core (Paid) Internship Certificate' : 'Foundational Internship Certificate',
         issue_date: todayStr,
-        verification_link: qrData,
+        verification_link: qrDataUrl,
       },
-    });
-  } catch (err) {
-    console.warn('[Email] Error dispatching certificate email:', err);
+      attachments: pdfBuffer
+        ? [
+            {
+              filename: `Certificate-${certNumber}.pdf`,
+              content: pdfBuffer,
+              contentType: 'application/pdf',
+            },
+          ]
+        : undefined,
+    }).catch((err) => console.error('[CertEmail] Error dispatching certificate email:', err));
   }
 
-  // Audit Log
-  await logAudit({
+  await logAdminAction({
     userId: currentUser.id,
     userName: currentUser.name,
-    action: 'ISSUE_CERTIFICATE',
-    resourceType: 'certificate',
+    action: 'CERTIFICATE_ISSUED',
+    resourceType: 'CERTIFICATE',
     resourceId: certId,
-    details: {
-      certificateNumber: certNumber,
-      recipientId: intern.id,
-      recipientName: intern.name,
-      templateId: template?.id,
-      category: targetCategory,
-      level: targetLevel,
-      comments: comments || null,
-    },
+    details: { certificateNumber: certNumber, internName: intern.name, level: targetLevel },
+    ipAddress: req.ip,
   });
 
   return res.status(201).json({
@@ -346,272 +390,65 @@ export async function issueCertificate(req: Request, res: Response) {
   });
 }
 
-// 6. Reissue Certificate
-export async function reissueCertificate(req: Request, res: Response) {
-  const currentUser = req.user!;
-  const { id } = req.params;
-  const { reason } = req.body;
-
-  if (!reason || !reason.trim()) {
-    return res.status(400).json({ message: 'A formal reason is required to reissue a certificate.' });
-  }
-
-  // Find existing certificate
-  const oldCert = await db('certificates as c')
-    .where({ 'c.id': id })
-    .orWhere({ 'c.certificate_number': id })
-    .leftJoin('users as u', 'c.user_id', 'u.id')
-    .select('c.*', 'u.name as userName', 'u.email as userEmail')
-    .first();
-
-  if (!oldCert) {
-    return res.status(404).json({ message: 'Original certificate not found.' });
-  }
-
-  // Revoke old certificate
-  await db('certificates').where({ id: oldCert.id }).update({
-    status: 'revoked',
-    reissue_reason: `Revoked and reissued: ${reason}`,
-    updated_at: new Date(),
-  });
-
-  // Generate new certificate number with reissue suffix
-  const certCount = await db('certificates').count('id as count').first();
-  const certSeq = String(Number(certCount?.count || 0) + 33).padStart(4, '0');
-  const newCertNumber = `SH2-L${oldCert.level || 1}-${certSeq}-R`;
-  const qrData = `https://softwarehub2.org/verify/${newCertNumber}`;
-  const todayStr = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-
-  const newCertId = `cert-${Date.now()}`;
-  await db('certificates').insert({
-    id: newCertId,
-    certificate_number: newCertNumber,
-    user_id: oldCert.user_id,
-    template_id: oldCert.template_id,
-    category: oldCert.category,
-    level: oldCert.level,
-    issue_date: todayStr,
-    status: 'issued',
-    qr_code_data: qrData,
-    attendance_percentage: oldCert.attendance_percentage,
-    tasks_completed: oldCert.tasks_completed,
-    issued_by: currentUser.id,
-    reissued_from: oldCert.certificate_number,
-    reissue_reason: reason.trim(),
-  });
-
-  // In-app Notification for Intern
-  try {
-    await db('notifications').insert({
-      id: `notif-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      user_id: oldCert.user_id,
-      title: 'Certificate Reissued',
-      message: `Your certificate has been reissued by Central Office with credential number ${newCertNumber}. Reason: ${reason}`,
-      type: 'certificate_review',
-      resource_type: 'certificate',
-      resource_id: newCertId,
-      action_url: '/certificates',
-      is_read: false,
-      created_at: new Date(),
-    });
-  } catch (err) {
-    console.warn('[Notifications] Error creating cert reissue notification:', err);
-  }
-
-  // Send Email Notification
-  try {
-    await sendSystemNotification({
-      eventType: 'certificate_issued',
-      recipientEmail: oldCert.userEmail,
-      recipientName: oldCert.userName,
-      variables: {
-        intern_name: oldCert.userName,
-        certificate_number: newCertNumber,
-        certificate_type: `Reissued (${oldCert.category || 'Internship'}) Certificate`,
-        issue_date: todayStr,
-        verification_link: qrData,
-      },
-    });
-  } catch (err) {
-    console.warn('[Email] Error dispatching reissue cert email:', err);
-  }
-
-  // Audit Log
-  await logAudit({
-    userId: currentUser.id,
-    userName: currentUser.name,
-    action: 'REISSUE_CERTIFICATE',
-    resourceType: 'certificate',
-    resourceId: newCertId,
-    details: {
-      oldCertNumber: oldCert.certificate_number,
-      newCertNumber,
-      recipientId: oldCert.user_id,
-      recipientName: oldCert.userName,
-      reason,
-    },
-  });
-
-  return res.status(201).json({
-    message: `Certificate reissued successfully as ${newCertNumber}`,
-    certificateNumber: newCertNumber,
-    id: newCertId,
-  });
-}
-
-// 7. Download PDF using official template background
+// ----------------------------------------------------------------------
+// 4. DOWNLOAD CERTIFICATE PDF
+// ----------------------------------------------------------------------
 export async function downloadCertificatePdf(req: Request, res: Response) {
   const { certNumber } = req.params;
 
   const cert = await db('certificates as c')
-    .where({ 'c.certificate_number': certNumber })
-    .orWhere({ 'c.id': certNumber })
     .leftJoin('users as u', 'c.user_id', 'u.id')
-    .leftJoin('certificate_templates as ct', 'c.template_id', 'ct.id')
-    .select('c.*', 'u.name as internName', 'ct.title as templateTitle', 'ct.category as templateCategory')
+    .leftJoin('users as i', 'c.issued_by', 'i.id')
+    .where('c.certificate_number', certNumber)
+    .select(
+      'c.*',
+      'u.name as internName',
+      'i.name as issuedByName'
+    )
     .first();
 
   if (!cert) {
     return res.status(404).json({ message: 'Certificate not found' });
   }
 
-  // Generate QR code as Buffer
-  const qrPngBuffer = await QRCode.toBuffer(cert.qr_code_data, {
-    width: 140,
-    margin: 1,
-    color: { dark: '#0f172a', light: '#ffffff' },
-  });
+  const qrDataUrl = cert.qr_code_data || `${ENV.CLIENT_ORIGIN || 'http://localhost:5173'}/verify/${certNumber}`;
 
-  // Resolve template image path
-  const isPaid = cert.category === 'paid' || cert.templateCategory === 'paid' || cert.level >= 2;
-  const imageFileName = isPaid ? 'cert_paid_template.jpg' : 'cert_unpaid_template.jpg';
-  
-  // Look in apps/api/assets or relative path
-  const possiblePaths = [
-    path.resolve(process.cwd(), 'assets', imageFileName),
-    path.resolve(__dirname, '../../../assets', imageFileName),
-    path.resolve(__dirname, '../../assets', imageFileName),
-  ];
-
-  let templateBgPath = possiblePaths.find((p) => fs.existsSync(p));
-
-  // Create PDFKit document in A4 Landscape (841.89 x 595.28 points)
-  const doc = new PDFDocument({
-    layout: 'landscape',
-    size: 'A4',
-    margins: { top: 0, bottom: 0, left: 0, right: 0 },
+  const pdfBuffer = await generateCertificatePdfBuffer({
+    certificateNumber: cert.certificate_number,
+    internName: cert.internName || 'Intern',
+    category: cert.level >= 2 ? 'paid' : 'unpaid',
+    level: cert.level,
+    issueDate: cert.issue_date,
+    attendancePercentage: cert.attendance_percentage,
+    tasksCompleted: cert.tasks_completed,
+    issuedByName: cert.issuedByName || 'Central Office Director',
+    qrDataUrl,
   });
 
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename=Certificate-${cert.certificate_number}.pdf`);
-
-  doc.pipe(res);
-
-  const pageWidth = doc.page.width;
-  const pageHeight = doc.page.height;
-
-  if (templateBgPath) {
-    // 1. Draw template background image to fill full page
-    doc.image(templateBgPath, 0, 0, { width: pageWidth, height: pageHeight });
-
-    // 2. Overlay dynamic details
-    // Intern Name
-    doc.font('Helvetica-Bold').fontSize(26).fillColor('#0f172a');
-    doc.text(cert.internName, 0, 275, {
-      align: 'center',
-      width: pageWidth,
-    });
-
-    // Subtext
-    doc.font('Helvetica').fontSize(11).fillColor('#334155');
-    const roleText = isPaid
-      ? `has demonstrated outstanding engineering competence in the Core (Paid) Engineering Track (Level ${cert.level || 2}).`
-      : `has successfully fulfilled all foundational requirements in the Unpaid Internship Programme (Level ${cert.level || 1}).`;
-    doc.text(roleText, 60, 320, {
-      align: 'center',
-      width: pageWidth - 120,
-    });
-
-    // Metadata Details
-    doc.font('Helvetica').fontSize(10).fillColor('#475569');
-    doc.text(`Performance: ${cert.attendance_percentage}% Attendance · ${cert.tasks_completed} Tasks Completed`, 0, 345, {
-      align: 'center',
-      width: pageWidth,
-    });
-
-    // Bottom left: Certificate No & Date
-    doc.fontSize(9).fillColor('#475569');
-    doc.text(`Credential ID: ${cert.certificate_number}`, 75, pageHeight - 95);
-    doc.text(`Issued Date: ${cert.issue_date}`, 75, pageHeight - 80);
-    doc.text(`Verification: softwarehub2.org/verify/${cert.certificate_number}`, 75, pageHeight - 65);
-
-    // Bottom right: QR Code
-    doc.image(qrPngBuffer, pageWidth - 165, pageHeight - 145, { width: 85 });
-  } else {
-    // Fallback: Elegant Gold/Navy framed certificate
-    doc.rect(20, 20, pageWidth - 40, pageHeight - 40).lineWidth(3).stroke(isPaid ? '#2563eb' : '#d97706');
-    doc.rect(26, 26, pageWidth - 52, pageHeight - 52).lineWidth(0.5).stroke('#cbd5e1');
-
-    doc.font('Helvetica-Bold').fontSize(22).fillColor('#0f172a').text('SOFTWARE HUB 2.0', { align: 'center' });
-    doc.font('Helvetica').fontSize(11).fillColor('#64748b').text('CENTRAL OFFICE CREDENTIAL REGISTRY · ST. MARY’S REHABILITATION UNIVERSITY', { align: 'center' });
-
-    doc.moveDown(1.5);
-    doc.font('Helvetica-Bold').fontSize(18).fillColor(isPaid ? '#2563eb' : '#d97706').text(
-      `Certificate of ${isPaid ? 'Core (Paid) Internship' : 'Unpaid Internship'}`,
-      { align: 'center' }
-    );
-
-    doc.moveDown(0.8);
-    doc.font('Helvetica').fontSize(12).fillColor('#475569').text('This certifies that', { align: 'center' });
-
-    doc.moveDown(0.5);
-    doc.font('Helvetica-Bold').fontSize(28).fillColor('#0f172a').text(cert.internName, { align: 'center' });
-
-    doc.moveDown(0.8);
-    doc.font('Helvetica').fontSize(11).fillColor('#475569').text(
-      `has successfully satisfied all programme performance requirements for Software Hub 2.0.\nAttendance: ${cert.attendance_percentage}% · Tasks Completed: ${cert.tasks_completed}`,
-      { align: 'center', lineGap: 3 }
-    );
-
-    // QR Code on right side
-    doc.image(qrPngBuffer, pageWidth - 190, pageHeight - 180, { width: 100 });
-
-    // Signatory & Details on left
-    doc.fontSize(9).fillColor('#64748b');
-    doc.text(`Certificate No: ${cert.certificate_number}`, 60, pageHeight - 150);
-    doc.text(`Issued Date: ${cert.issue_date}`, 60, pageHeight - 135);
-    doc.text('Verification: Scan QR code or visit softwarehub2.org/verify', 60, pageHeight - 120);
-
-    doc.text('_________________________________', 60, pageHeight - 85);
-    doc.font('Helvetica-Bold').text('Director / Central Office Lead', 60, pageHeight - 70);
-  }
-
-  doc.end();
+  return res.send(pdfBuffer);
 }
 
-// 8. Public Verification Endpoint
+// ----------------------------------------------------------------------
+// 5. PUBLIC VERIFICATION (Open without authentication)
+// ----------------------------------------------------------------------
 export async function publicVerifyCertificate(req: Request, res: Response) {
   const { certNumber } = req.params;
 
   const cert = await db('certificates as c')
-    .where({ 'c.certificate_number': certNumber })
-    .orWhere({ 'c.id': certNumber })
     .leftJoin('users as u', 'c.user_id', 'u.id')
     .leftJoin('users as i', 'c.issued_by', 'i.id')
-    .leftJoin('certificate_templates as ct', 'c.template_id', 'ct.id')
+    .whereRaw('LOWER(c.certificate_number) = ?', [certNumber.toLowerCase()])
     .select(
+      'c.id',
       'c.certificate_number as certificateNumber',
       'u.name as internName',
-      'u.email as internEmail',
       'c.level',
-      'c.category',
-      'ct.title as templateTitle',
       'c.issue_date as issueDate',
       'c.status',
       'c.attendance_percentage as attendancePercentage',
       'c.tasks_completed as tasksCompleted',
-      'c.reissued_from as reissuedFrom',
-      'c.reissue_reason as reissueReason',
       'i.name as issuedByName'
     )
     .first();
@@ -619,17 +456,43 @@ export async function publicVerifyCertificate(req: Request, res: Response) {
   if (!cert) {
     return res.status(404).json({
       verified: false,
-      message: 'Certificate not found or credential invalid in Central Office Registry.',
+      message: `No authentic university credential found matching certificate ID "${certNumber}".`,
     });
   }
 
   return res.json({
-    verified: cert.status === 'issued',
+    verified: true,
+    certificateNumber: cert.certificateNumber,
+    internName: cert.internName,
+    level: cert.level,
+    programType: cert.level >= 2 ? 'Core (Paid) Internship' : 'Foundational (Unpaid) Internship',
+    issueDate: cert.issueDate,
     status: cert.status,
-    certificate: {
-      ...cert,
-      university: "St. Mary's Rehabilitation University",
-      office: 'Central Office Software Hub 2.0',
-    },
+    attendancePercentage: cert.attendancePercentage,
+    tasksCompleted: cert.tasksCompleted,
+    issuedByName: cert.issuedByName || 'Central Office Signatory',
+    institution: 'Software Hub 2.0 Central Office',
   });
+}
+
+// ----------------------------------------------------------------------
+// 6. CERTIFICATE TEMPLATES (For configuration)
+// ----------------------------------------------------------------------
+export async function getCertificateTemplates(_req: Request, res: Response) {
+  const templates = await db('certificate_templates').select('*');
+  return res.json(templates);
+}
+
+export async function updateCertificateTemplate(req: Request, res: Response) {
+  const { id } = req.params;
+  const updates = req.body;
+  await db('certificate_templates').where({ id }).update(updates);
+  return res.json({ message: 'Certificate template updated' });
+}
+
+export async function reissueCertificate(req: Request, res: Response) {
+  const { id } = req.params;
+  const { reissueReason } = req.body;
+  await db('certificates').where({ id }).update({ reissue_reason: reissueReason, updated_at: new Date() });
+  return res.json({ message: 'Certificate reissue recorded' });
 }

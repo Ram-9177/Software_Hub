@@ -36,11 +36,16 @@ export async function authenticateToken(req: Request, res: Response, next: NextF
       sub: string;
       email: string;
       role: UserRole;
+      tokenVersion?: number;
     };
 
     const user = await db('users').where({ id: payload.sub }).first();
     if (!user || user.status !== 'active') {
       return res.status(401).json({ message: 'User account not active or not found' });
+    }
+
+    if (payload.tokenVersion && user.token_version && payload.tokenVersion < user.token_version) {
+      return res.status(401).json({ message: 'Session has been revoked. Please sign in again.' });
     }
 
     req.user = {

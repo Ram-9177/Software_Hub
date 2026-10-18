@@ -28,9 +28,10 @@ router.get('/audit-logs', requireRole(USER_ROLES.ADMIN, USER_ROLES.LEAD), getAud
 
 // Directory & member management
 router.get('/', getUsers);
-router.post('/', requireRole(USER_ROLES.ADMIN, USER_ROLES.LEAD), createUser);
+// Admin, Lead, and Core (paid) interns can create users (Core interns can only create unpaid interns paired to them)
+router.post('/', requireRole(USER_ROLES.ADMIN, USER_ROLES.LEAD, USER_ROLES.PAID_INTERN), createUser);
 router.patch('/:id', requireRole(USER_ROLES.ADMIN, USER_ROLES.LEAD), updateUser);
-router.post('/bulk', requireRole(USER_ROLES.ADMIN, USER_ROLES.LEAD), validateBody(createInternsBulkSchema), createBulkInterns);
+router.post('/bulk', requireRole(USER_ROLES.ADMIN, USER_ROLES.LEAD, USER_ROLES.PAID_INTERN), validateBody(createInternsBulkSchema), createBulkInterns);
 router.post('/pair', requireRole(USER_ROLES.ADMIN, USER_ROLES.LEAD), validateBody(pairInternSchema), pairIntern);
 router.post('/promote', requireRole(USER_ROLES.ADMIN, USER_ROLES.LEAD), validateBody(promoteInternSchema), promoteIntern);
 

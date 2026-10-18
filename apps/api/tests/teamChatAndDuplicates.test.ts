@@ -10,6 +10,15 @@ describe('Team Creation, Duplicate Prevention & Chat Access Control', () => {
   let coreToken: string;
   let unpaidToken: string;
 
+  let adminUserId: string;
+  let leadUserId: string;
+  let coreUserId: string;
+  let unpaidUserId: string;
+  let secondUnpaidUserId: string;
+
+  let testTaskId: string;
+  let testPartId: string;
+
   beforeAll(async () => {
     // Run migrations and seeds
     await db.migrate.latest({
@@ -21,16 +30,63 @@ describe('Team Creation, Duplicate Prevention & Chat Access Control', () => {
 
     const adminRes = await request(app).post('/api/auth/mock-sso').send({ role: 'admin' });
     adminToken = adminRes.body.accessToken;
+    adminUserId = adminRes.body.user.id;
 
     const leadRes = await request(app).post('/api/auth/mock-sso').send({ role: 'lead' });
     leadToken = leadRes.body.accessToken;
+    leadUserId = leadRes.body.user.id;
 
     const coreRes = await request(app).post('/api/auth/mock-sso').send({ role: 'paid_intern' });
     coreToken = coreRes.body.accessToken;
+    coreUserId = coreRes.body.user.id;
 
     const unpaidRes = await request(app).post('/api/auth/mock-sso').send({ role: 'unpaid_intern' });
     unpaidToken = unpaidRes.body.accessToken;
-  });
+    unpaidUserId = unpaidRes.body.user.id;
+
+    // Create a second unpaid intern for adding member and reassignment tests
+    secondUnpaidUserId = `u-unpaid-second-${Date.now()}`;
+    await db('users').insert({
+      id: secondUnpaidUserId,
+      name: 'Second Unpaid Intern',
+      email: `second_unpaid_${Date.now()}@test.softwarehub2.org`,
+      role: 'unpaid_intern',
+      intern_type: 'unpaid',
+      current_level: 1,
+      status: 'active',
+      token_version: 1,
+      created_at: new Date(),
+      updated_at: new Date(),
+    });
+
+    // Create a task with part for reassignment tests
+    testTaskId = `t-chat-test-${Date.now()}`;
+    await db('tasks').insert({
+      id: testTaskId,
+      task_number: 'TSK-REASSIGN-01',
+      title: 'Task for Reassignment',
+      description: 'Testing part reassignment workflow',
+      priority: 'medium',
+      status: 'in_progress',
+      due_date: new Date(Date.now() + 86400000),
+      created_by: adminUserId,
+      created_at: new Date(),
+      updated_at: new Date(),
+    });
+
+    testPartId = `p-reassign-${Date.now()}`;
+    await db('task_parts').insert({
+      id: testPartId,
+      task_id: testTaskId,
+      part_number: 1,
+      total_parts: 1,
+      title: 'Part to Reassign',
+      assigned_intern_id: unpaidUserId,
+      due_date: new Date(Date.now() + 86400000),
+      status: 'in_progress',
+      reviewer_id: leadUserId,
+    });
+  }, 30000);
 
   let createdTeamId: string;
   let createdChannelId: string;
@@ -43,8 +99,8 @@ describe('Team Creation, Duplicate Prevention & Chat Access Control', () => {
         .send({
           name: 'Mobile App Alpha',
           description: 'React Native & iOS team',
-          leadId: 'u-coadmin-sheshi',
-          memberIds: ['u-core-manohar', 'u-core-srividhya'],
+          leadId: leadUserId,
+          memberIds: [coreUserId],
         });
 
       expect(res.status).toBe(201);
@@ -57,7 +113,7 @@ describe('Team Creation, Duplicate Prevention & Chat Access Control', () => {
       const teamInDb = await db('teams').where({ id: createdTeamId }).first();
       expect(teamInDb).toBeDefined();
       expect(teamInDb.name).toBe('Mobile App Alpha');
-      expect(teamInDb.lead_id).toBe('u-coadmin-sheshi');
+      expect(teamInDb.lead_id).toBe(leadUserId);
 
       // Verify channel persistence
       const chanInDb = await db('chat_channels').where({ id: createdChannelId }).first();
@@ -67,10 +123,9 @@ describe('Team Creation, Duplicate Prevention & Chat Access Control', () => {
       // Verify members persistence (creator, lead, and memberIds)
       const membersInDb = await db('team_members').where({ team_id: createdTeamId });
       const memberUids = membersInDb.map((m) => m.user_id);
-      expect(memberUids).toContain('u-coadmin-sheshi');
-      expect(memberUids).toContain('u-core-manohar');
-      expect(memberUids).toContain('u-core-srividhya');
-      expect(memberUids).toContain('u-admin-sriram');
+      expect(memberUids).toContain(leadUserId);
+      expect(memberUids).toContain(coreUserId);
+      expect(memberUids).toContain(adminUserId);
 
       // Verify initial welcome message
       const welcomeMsg = await db('chat_messages').where({ channel_id: createdChannelId }).first();
@@ -85,8 +140,8 @@ describe('Team Creation, Duplicate Prevention & Chat Access Control', () => {
         .send({
           name: 'Security Squad',
           description: 'Penetration testing and auth team',
-          leadId: 'u-coadmin-sheshi',
-          memberIds: ['u-core-mahendar'],
+          leadId: leadUserId,
+          memberIds: [coreUserId],
         });
 
       expect(res.status).toBe(201);
@@ -99,7 +154,7 @@ describe('Team Creation, Duplicate Prevention & Chat Access Control', () => {
         .set('Authorization', `Bearer ${unpaidToken}`)
         .send({
           name: 'Unpaid Rogue Team',
-          leadId: 'u-unpaid-cherry',
+          leadId: unpaidUserId,
           memberIds: [],
         });
 
@@ -114,7 +169,7 @@ describe('Team Creation, Duplicate Prevention & Chat Access Control', () => {
         .set('Authorization', `Bearer ${adminToken}`)
         .send({
           name: 'Mobile App Alpha', // Same name as before
-          leadId: 'u-coadmin-sheshi',
+          leadId: leadUserId,
           memberIds: [],
         });
 
@@ -127,7 +182,7 @@ describe('Team Creation, Duplicate Prevention & Chat Access Control', () => {
         .post(`/api/chat/teams/${createdTeamId}/members`)
         .set('Authorization', `Bearer ${adminToken}`)
         .send({
-          userId: 'u-core-manohar',
+          userId: coreUserId,
         });
 
       expect(res.status).toBe(409);
@@ -139,21 +194,21 @@ describe('Team Creation, Duplicate Prevention & Chat Access Control', () => {
         .post(`/api/chat/teams/${createdTeamId}/members`)
         .set('Authorization', `Bearer ${leadToken}`)
         .send({
-          userId: 'u-unpaid-ana',
+          userId: secondUnpaidUserId,
         });
 
       expect(res.status).toBe(200);
       expect(res.body.message).toContain('added to the team');
 
       const member = await db('team_members')
-        .where({ team_id: createdTeamId, user_id: 'u-unpaid-ana' })
+        .where({ team_id: createdTeamId, user_id: secondUnpaidUserId })
         .first();
       expect(member).toBeDefined();
     });
 
     it('blocks removing the Team Lead without reassigning leadership first', async () => {
       const res = await request(app)
-        .delete(`/api/chat/teams/${createdTeamId}/members/u-coadmin-sheshi`)
+        .delete(`/api/chat/teams/${createdTeamId}/members/${leadUserId}`)
         .set('Authorization', `Bearer ${adminToken}`);
 
       expect(res.status).toBe(400);
@@ -163,6 +218,7 @@ describe('Team Creation, Duplicate Prevention & Chat Access Control', () => {
 
   describe('3. Chat Access Control & Message Persistence', () => {
     it('blocks users who are not members of the channel from reading messages (HTTP 403)', async () => {
+      // unpaidUserId is not a member of createdTeamId/createdChannelId
       const res = await request(app)
         .get(`/api/chat/channels/${createdChannelId}/messages`)
         .set('Authorization', `Bearer ${unpaidToken}`);
@@ -175,7 +231,7 @@ describe('Team Creation, Duplicate Prevention & Chat Access Control', () => {
       const postRes = await request(app)
         .post(`/api/chat/channels/${createdChannelId}/messages`)
         .set('Authorization', `Bearer ${coreToken}`)
-        .field('text', 'Hello from Manohar in our new team channel!');
+        .field('text', 'Hello from Core Intern in our new team channel!');
 
       expect(postRes.status).toBe(201);
       expect(postRes.body.id).toBeDefined();
@@ -186,25 +242,25 @@ describe('Team Creation, Duplicate Prevention & Chat Access Control', () => {
 
       expect(getRes.status).toBe(200);
       const texts = getRes.body.map((m: any) => m.text);
-      expect(texts).toContain('Hello from Manohar in our new team channel!');
+      expect(texts).toContain('Hello from Core Intern in our new team channel!');
     });
   });
 
   describe('4. Task Reassignment & Leave Management Workflows', () => {
     it('reassigns a task part and records updated assignee in database', async () => {
       const res = await request(app)
-        .post('/api/tasks/parts/part-audit-2/reassign')
+        .post(`/api/tasks/parts/${testPartId}/reassign`)
         .set('Authorization', `Bearer ${leadToken}`)
         .send({
-          newAssigneeId: 'u-unpaid-nandhini',
-          reason: 'Load balancing for Part 2',
+          newAssigneeId: secondUnpaidUserId,
+          reason: 'Load balancing for Part 1',
         });
 
       expect(res.status).toBe(200);
-      expect(res.body.message).toContain('reassigned to Nandhini');
+      expect(res.body.message).toContain('reassigned to Second Unpaid Intern');
 
-      const partInDb = await db('task_parts').where({ id: 'part-audit-2' }).first();
-      expect(partInDb.assigned_intern_id).toBe('u-unpaid-nandhini');
+      const partInDb = await db('task_parts').where({ id: testPartId }).first();
+      expect(partInDb.assigned_intern_id).toBe(secondUnpaidUserId);
     });
 
     it('submits leave request and allows Lead/Admin review', async () => {

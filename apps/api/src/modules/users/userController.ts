@@ -1,7 +1,8 @@
 import type { Request, Response } from 'express';
-import bcrypt from 'bcryptjs';
 import { db } from '../../config/database.js';
 import { USER_ROLES, INTERN_TYPES } from '@command-center/shared';
+import { hashPassword } from '../../config/security.js';
+import { sendSystemNotification } from '../automations/emailService.js';
 
 export const MAX_ADMIN_LIMIT = 5;
 
@@ -65,7 +66,6 @@ export async function grantAdminRole(req: Request, res: Response) {
     return res.status(400).json({ message: 'Target role must be admin or co-admin (lead).' });
   }
 
-  // Count current administrators
   const adminCountRecord = await db('users')
     .whereIn('role', [USER_ROLES.ADMIN, USER_ROLES.LEAD])
     .count('id as count')
@@ -73,7 +73,6 @@ export async function grantAdminRole(req: Request, res: Response) {
 
   const currentAdminCount = Number(adminCountRecord?.count || 0);
 
-  // Check if target user is already an administrator
   const targetUser = await db('users').where({ id: targetUserId }).first();
   if (!targetUser) {
     return res.status(404).json({ message: 'Target user not found.' });
@@ -124,17 +123,17 @@ export async function getUsers(req: Request, res: Response) {
   const currentUser = req.user!;
 
   if (currentUser.role === USER_ROLES.UNPAID_INTERN) {
-    // Unpaid intern can view team leads and peers in assigned team
-    const myTeams = await db('team_members').where({ user_id: currentUser.id }).pluck('team_id');
-    const allowedUserIds = await db('team_members').whereIn('team_id', myTeams).pluck('user_id');
-    
-    // Also include administrators
+    // Unpaid intern: sees only their own work / record and their paired mentor & leaders
+    const allowedUserIds = new Set<string>([currentUser.id]);
+    if (currentUser.pairedPaidInternId) {
+      allowedUserIds.add(currentUser.pairedPaidInternId);
+    }
     const adminIds = await db('users').whereIn('role', [USER_ROLES.ADMIN, USER_ROLES.LEAD]).pluck('id');
-    const allAllowed = Array.from(new Set([...allowedUserIds, ...adminIds, currentUser.id]));
+    for (const id of adminIds) allowedUserIds.add(id);
 
     const users = await db('users as u')
       .leftJoin('users as p', 'u.paired_paid_intern_id', 'p.id')
-      .whereIn('u.id', allAllowed)
+      .whereIn('u.id', Array.from(allowedUserIds))
       .select(
         'u.id',
         'u.name',
@@ -174,16 +173,23 @@ export async function getUsers(req: Request, res: Response) {
       'u.created_at as createdAt'
     );
 
-  // Scope filtering for Core Intern
+  // Core Intern: views their own work, their team's work, and their unpaid interns' work
   if (currentUser.role === USER_ROLES.PAID_INTERN) {
+    // Get teams that currentUser belongs to
+    const myTeamIds = await db('team_members').where({ user_id: currentUser.id }).pluck('team_id');
+    const myTeamMemberIds = await db('team_members').whereIn('team_id', myTeamIds).pluck('user_id');
+
     query = query.where((builder) => {
-      builder.where('u.id', currentUser.id).orWhere('u.paired_paid_intern_id', currentUser.id);
+      builder
+        .where('u.id', currentUser.id)
+        .orWhere('u.paired_paid_intern_id', currentUser.id)
+        .orWhereIn('u.id', myTeamMemberIds);
     });
   }
 
   const users = await query;
 
-  // Compute attendance percentage and tasks for each user from real DB
+  // Real attendance percentage & tasks calculated from database rows
   const usersWithStats = await Promise.all(
     users.map(async (u) => {
       const records = await db('attendance').where({ user_id: u.id });
@@ -191,24 +197,22 @@ export async function getUsers(req: Request, res: Response) {
       const presentDays = records.filter(
         (r) => r.status === 'present' || r.status === 'late' || r.status === 'half_day'
       ).length;
-      const attendancePct = totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : null;
+      const attendancePct = totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : 0;
 
-      // Get user team memberships
       const team = await db('team_members as tm')
         .join('teams as t', 'tm.team_id', 't.id')
         .where('tm.user_id', u.id)
         .select('t.id as teamId', 't.name as teamName')
         .first();
 
-      // Count tasks assigned to this user
       const assignedParts = await db('task_parts').where({ assigned_intern_id: u.id });
       const completedParts = assignedParts.filter((p) => p.status === 'done');
 
       return {
         ...u,
         teamId: team?.teamId || null,
-        teamName: team?.teamName || (u.role === USER_ROLES.ADMIN || u.role === USER_ROLES.LEAD ? 'Administration' : 'Not configured'),
-        attendancePercentage: attendancePct,
+        teamName: team?.teamName || (u.role === USER_ROLES.ADMIN || u.role === USER_ROLES.LEAD ? 'Central Office Administration' : 'Unassigned'),
+        attendancePercentage: totalDays > 0 ? attendancePct : null,
         totalTasksAssigned: assignedParts.length,
         tasksCompleted: completedParts.length,
       };
@@ -218,87 +222,91 @@ export async function getUsers(req: Request, res: Response) {
   return res.json(usersWithStats);
 }
 
-export async function updateUser(req: Request, res: Response) {
-  const currentUser = req.user!;
-  const { id } = req.params;
-  const { name, email, phone, joiningDate, currentLevel, marksheetPercentage, status } = req.body;
-
-  if (currentUser.role !== USER_ROLES.ADMIN && currentUser.role !== USER_ROLES.LEAD) {
-    return res.status(403).json({ message: 'Only authorized administrators can modify member details.' });
-  }
-
-  const user = await db('users').where({ id }).first();
-  if (!user) {
-    return res.status(404).json({ message: 'User not found' });
-  }
-
-  // Prevent email duplicate
-  if (email && email !== user.email) {
-    const existing = await db('users').where({ email }).whereNot({ id }).first();
-    if (existing) {
-      return res.status(400).json({ message: 'An account with this email address already exists.' });
-    }
-  }
-
-  const updatePayload: Record<string, any> = {
-    updated_at: new Date(),
-  };
-
-  if (name !== undefined) updatePayload.name = name;
-  if (email !== undefined) updatePayload.email = email;
-  if (phone !== undefined) updatePayload.phone = phone;
-  if (joiningDate !== undefined) updatePayload.joining_date = joiningDate;
-  if (currentLevel !== undefined) updatePayload.current_level = currentLevel;
-  if (marksheetPercentage !== undefined) updatePayload.marksheet_percentage = marksheetPercentage;
-  if (status !== undefined) updatePayload.status = status;
-
-  await db('users').where({ id }).update(updatePayload);
-
-  await logAdminAction({
-    userId: currentUser.id,
-    userName: currentUser.name,
-    action: 'MEMBER_UPDATED',
-    resourceType: 'USER',
-    resourceId: id,
-    details: { updatedFields: updatePayload, targetUserName: user.name },
-    ipAddress: req.ip,
-  });
-
-  return res.json({ message: 'Member updated successfully', user: { ...user, ...updatePayload } });
-}
-
 export async function createUser(req: Request, res: Response) {
   const currentUser = req.user!;
-
-  if (currentUser.role !== USER_ROLES.ADMIN && currentUser.role !== USER_ROLES.LEAD) {
-    return res.status(403).json({ message: 'Only Admin and Co-Admin can create new members.' });
-  }
-
-  const { name, email, role = USER_ROLES.UNPAID_INTERN, internType, teamId, phone, joiningDate } = req.body;
+  const {
+    name,
+    email,
+    role = USER_ROLES.UNPAID_INTERN,
+    internType,
+    pairedPaidInternId,
+    teamId,
+    phone,
+    joiningDate,
+    password,
+  } = req.body;
 
   if (!name || !email) {
     return res.status(400).json({ message: 'Name and email are required.' });
   }
 
-  const existing = await db('users').where({ email: email.trim().toLowerCase() }).first();
+  // Role permissions
+  if (currentUser.role === USER_ROLES.UNPAID_INTERN) {
+    return res.status(403).json({ message: 'Unpaid interns are not authorized to create users.' });
+  }
+
+  // Core intern can ONLY create unpaid interns (paired to them automatically)
+  if (currentUser.role === USER_ROLES.PAID_INTERN) {
+    if (role !== USER_ROLES.UNPAID_INTERN) {
+      return res.status(403).json({
+        message: 'Core interns may only create Unpaid Interns paired to them.',
+      });
+    }
+  }
+
+  // Check 5-admin limit if creating admin or lead
+  if (role === USER_ROLES.ADMIN || role === USER_ROLES.LEAD) {
+    if (currentUser.role !== USER_ROLES.ADMIN && currentUser.role !== USER_ROLES.LEAD) {
+      return res.status(403).json({ message: 'Only administrators can create admin/lead accounts.' });
+    }
+    const adminCountRecord = await db('users')
+      .whereIn('role', [USER_ROLES.ADMIN, USER_ROLES.LEAD])
+      .count('id as count')
+      .first();
+    const count = Number(adminCountRecord?.count || 0);
+    if (count >= MAX_ADMIN_LIMIT) {
+      return res.status(400).json({
+        message: `Maximum limit of ${MAX_ADMIN_LIMIT} administrators reached. Cannot create another administrator account.`,
+      });
+    }
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const existing = await db('users').whereRaw('LOWER(email) = ?', [normalizedEmail]).first();
   if (existing) {
     return res.status(409).json({ message: 'A user with this email address already exists.' });
   }
 
-  const defaultPassword = await bcrypt.hash('Password123!', 10);
+  // Password hash with bcrypt cost 12
+  const passwordHash = await hashPassword(password || 'Password123!');
   const newId = `u-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-  const normalizedEmail = email.trim().toLowerCase();
+
+  // Automatically pair unpaid intern to current core intern if caller is a core intern
+  let assignedPairedId = pairedPaidInternId || null;
+  if (currentUser.role === USER_ROLES.PAID_INTERN) {
+    assignedPairedId = currentUser.id;
+  }
+
+  const resolvedInternType =
+    role === USER_ROLES.PAID_INTERN
+      ? INTERN_TYPES.PAID
+      : role === USER_ROLES.UNPAID_INTERN
+      ? INTERN_TYPES.UNPAID
+      : internType || null;
 
   await db('users').insert({
     id: newId,
     name: name.trim(),
     email: normalizedEmail,
-    password_hash: defaultPassword,
+    password_hash: passwordHash,
     role,
-    intern_type: internType || (role === USER_ROLES.PAID_INTERN ? INTERN_TYPES.PAID : INTERN_TYPES.UNPAID),
+    intern_type: resolvedInternType,
+    paired_paid_intern_id: assignedPairedId,
     phone: phone || null,
     joining_date: joiningDate || new Date().toISOString().split('T')[0],
     current_level: 1,
+    marksheet_percentage: null,
+    marksheet_confirmed: false,
     status: 'active',
   });
 
@@ -310,52 +318,28 @@ export async function createUser(req: Request, res: Response) {
     });
   }
 
-  // Automated Welcome Email (Requirement 4)
+  // 1. Welcome Email Automation: immediately to the assignee
   try {
-    const { sendSystemNotification } = await import('../automations/emailService.js');
-    let teamName = 'Central Office Team';
-    if (teamId) {
-      const teamObj = await db('teams').where({ id: teamId }).first();
-      if (teamObj) teamName = teamObj.name;
-    }
-
-    const roleName =
+    const roleDisplayName =
       role === USER_ROLES.ADMIN
-        ? 'Administrator'
+        ? 'Central Office Admin'
         : role === USER_ROLES.LEAD
-        ? 'Team Lead'
+        ? 'Co-Admin / Team Lead'
         : role === USER_ROLES.PAID_INTERN
         ? 'Core Intern'
         : 'Unpaid Intern';
 
     await sendSystemNotification({
-      eventType: 'welcome_user',
+      ruleKey: 'welcome_email',
       recipientEmail: normalizedEmail,
       recipientName: name.trim(),
+      recipientUserId: newId,
       variables: {
-        recipient_name: name.trim(),
-        recipient_role: roleName,
-        recipient_designation: `${roleName} • Central Office`,
-        team_name: teamName,
-        login_url: `${req.protocol}://${req.get('host')}/login`,
+        recipient_role: roleDisplayName,
       },
     });
   } catch (err) {
-    console.warn('[WelcomeEmail] Failed to send welcome notification:', err);
-  }
-
-  // Create In-App Notification
-  try {
-    const { createNotification } = await import('../notifications/notificationsController.js');
-    await createNotification({
-      userId: newId,
-      title: 'Welcome to Central Office',
-      message: 'Welcome to Software Hub 2.0 Command Center. Review your team tasks and responsibilities.',
-      type: 'announcement',
-      actionUrl: '/',
-    });
-  } catch (err) {
-    console.warn('[Notification] Failed to create welcome in-app notification:', err);
+    console.warn('[WelcomeEmail] Failed to dispatch welcome email:', err);
   }
 
   await logAdminAction({
@@ -364,45 +348,53 @@ export async function createUser(req: Request, res: Response) {
     action: 'USER_CREATED',
     resourceType: 'USER',
     resourceId: newId,
-    details: { name, email: normalizedEmail, role },
+    details: { name, email: normalizedEmail, role, pairedPaidInternId: assignedPairedId },
     ipAddress: req.ip,
   });
 
   return res.status(201).json({
-    message: `Account for ${name} created and welcome email dispatched successfully.`,
-    user: { id: newId, name, email: normalizedEmail, role },
+    message: 'User created successfully',
+    user: {
+      id: newId,
+      name: name.trim(),
+      email: normalizedEmail,
+      role,
+      internType: resolvedInternType,
+      pairedPaidInternId: assignedPairedId,
+    },
   });
 }
 
 export async function createBulkInterns(req: Request, res: Response) {
   const currentUser = req.user!;
-  const { emails, type, worksWithId, teamId } = req.body;
+  const { emails, internType = INTERN_TYPES.UNPAID, paidInternId, teamId } = req.body;
 
-  let assignedPaidInternId = worksWithId;
-  let targetType = type;
-
-  if (currentUser.role === USER_ROLES.PAID_INTERN) {
-    targetType = INTERN_TYPES.UNPAID;
-    assignedPaidInternId = currentUser.id;
+  if (currentUser.role === USER_ROLES.PAID_INTERN && internType !== INTERN_TYPES.UNPAID) {
+    return res.status(403).json({
+      message: 'Core interns may only create unpaid interns.',
+    });
   }
 
-  const defaultPassword = await bcrypt.hash('Password123!', 10);
-  const createdUsers = [];
+  const assignedPaidInternId =
+    currentUser.role === USER_ROLES.PAID_INTERN ? currentUser.id : paidInternId || null;
 
-  for (const email of emails) {
-    const normalizedEmail = email.trim().toLowerCase();
-    const existing = await db('users').where({ email: normalizedEmail }).first();
+  const createdUsers: any[] = [];
+  const defaultPassword = await hashPassword('Password123!');
+
+  for (const rawEmail of emails) {
+    const normalizedEmail = rawEmail.trim().toLowerCase();
+    const existing = await db('users').whereRaw('LOWER(email) = ?', [normalizedEmail]).first();
     if (existing) continue;
 
-    const baseName = normalizedEmail.split('@')[0].replace(/[._]/g, ' ');
-    const name = baseName
-      .split(' ')
+    const usernamePart = normalizedEmail.split('@')[0];
+    const name = usernamePart
+      .split(/[._-]/)
       .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
       .join(' ');
 
     const newId = `u-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
     const role =
-      targetType === INTERN_TYPES.PAID ? USER_ROLES.PAID_INTERN : USER_ROLES.UNPAID_INTERN;
+      internType === INTERN_TYPES.PAID ? USER_ROLES.PAID_INTERN : USER_ROLES.UNPAID_INTERN;
 
     await db('users').insert({
       id: newId,
@@ -410,8 +402,8 @@ export async function createBulkInterns(req: Request, res: Response) {
       email: normalizedEmail,
       password_hash: defaultPassword,
       role,
-      intern_type: targetType,
-      paired_paid_intern_id: targetType === INTERN_TYPES.UNPAID ? assignedPaidInternId : null,
+      intern_type: internType,
+      paired_paid_intern_id: internType === INTERN_TYPES.UNPAID ? assignedPaidInternId : null,
       current_level: 1,
       status: 'active',
     });
@@ -424,40 +416,21 @@ export async function createBulkInterns(req: Request, res: Response) {
       });
     }
 
-    // Trigger Automated Welcome Email
-    try {
-      const { sendSystemNotification } = await import('../automations/emailService.js');
-      const roleDisplayName = role === USER_ROLES.PAID_INTERN ? 'Core Intern' : 'Unpaid Intern';
-      await sendSystemNotification({
-        eventType: 'welcome_user',
-        recipientEmail: normalizedEmail,
-        recipientName: name,
-        variables: {
-          recipient_name: name,
-          recipient_role: roleDisplayName,
-          recipient_designation: `${roleDisplayName} • Central Office`,
-          team_name: 'Software Hub 2.0 Cohort',
-          login_url: `${req.protocol}://${req.get('host')}/login`,
-        },
-      });
-    } catch (e) {
-      console.warn('[WelcomeEmail] Bulk welcome email warning:', e);
-    }
+    sendSystemNotification({
+      ruleKey: 'welcome_email',
+      recipientEmail: normalizedEmail,
+      recipientName: name,
+      recipientUserId: newId,
+      variables: {
+        recipient_role: role === USER_ROLES.PAID_INTERN ? 'Core Intern' : 'Unpaid Intern',
+      },
+    }).catch(() => {});
 
-    createdUsers.push({ id: newId, name, email: normalizedEmail, role, internType: targetType });
+    createdUsers.push({ id: newId, name, email: normalizedEmail, role, internType });
   }
 
-  await logAdminAction({
-    userId: currentUser.id,
-    userName: currentUser.name,
-    action: 'INTERNS_CREATED',
-    resourceType: 'USER',
-    details: { count: createdUsers.length, emails: createdUsers.map((u) => u.email) },
-    ipAddress: req.ip,
-  });
-
   return res.status(201).json({
-    message: `Created ${createdUsers.length} interns successfully with automated welcome notifications`,
+    message: `Created ${createdUsers.length} interns successfully`,
     users: createdUsers,
   });
 }
@@ -485,17 +458,16 @@ export async function promoteIntern(req: Request, res: Response) {
   const currentUser = req.user!;
   const { internId, decision, notes } = req.body;
 
-  // Strict backend check: Only Admin and Co-Admin
+  // Strict check: Only Admin and Lead can review levels
   if (currentUser.role !== USER_ROLES.ADMIN && currentUser.role !== USER_ROLES.LEAD) {
     return res.status(403).json({
       message: 'Access Denied: Only Admin and Co-Admin may review or approve level progression.',
     });
   }
 
-  // Prevent self-approval
   if (internId === currentUser.id) {
     return res.status(400).json({
-      message: 'Administrators cannot self-approve their own level progression.',
+      message: 'Administrators cannot self-approve their own progression.',
     });
   }
 
@@ -505,7 +477,7 @@ export async function promoteIntern(req: Request, res: Response) {
   }
 
   const previousLevel = Number(intern.current_level || 1);
-  const isApproved = decision === 'approve';
+  const isApproved = decision === 'approve' || decision === 'pass';
   const newLevel = isApproved ? Math.min(previousLevel + 1, 15) : previousLevel;
 
   // Record Level Review
@@ -520,100 +492,73 @@ export async function promoteIntern(req: Request, res: Response) {
     created_at: new Date(),
   });
 
-  if (isApproved) {
-    const updateFields: Record<string, any> = {
-      current_level: newLevel,
-      updated_at: new Date(),
-    };
+  const updateFields: Record<string, any> = {
+    current_level: newLevel,
+    updated_at: new Date(),
+  };
 
-    // If advancing from unpaid completion (level 4+) or explicitly promoting to paid
-    if (intern.role === USER_ROLES.UNPAID_INTERN && newLevel >= 4) {
-      updateFields.role = USER_ROLES.PAID_INTERN;
-      updateFields.intern_type = INTERN_TYPES.PAID;
-      updateFields.paired_paid_intern_id = null;
-    }
-
-    await db('users').where({ id: internId }).update(updateFields);
-
-    // Notify Intern In-App
-    try {
-      const { createNotification } = await import('../notifications/notificationsController.js');
-      await createNotification({
-        userId: internId,
-        title: `Level Promotion Approved! (Level ${newLevel})`,
-        message: `Congratulations! Your progression to Level ${newLevel} was approved by ${currentUser.name}.`,
-        type: 'level_approval',
-        resourceType: 'LEVEL',
-        resourceId: String(newLevel),
-        actionUrl: '/tracker',
+  // Promotion from Unpaid to Core Intern requires passing 15 levels AND Admin approval
+  if (isApproved && previousLevel >= 15 && intern.role === USER_ROLES.UNPAID_INTERN) {
+    if (currentUser.role !== USER_ROLES.ADMIN) {
+      return res.status(403).json({
+        message: 'Only an Admin can approve promotion from Unpaid Intern to Paid (Core) Intern after 15 levels.',
       });
-    } catch (e) {
-      console.warn('[Notification] Promotion notification error:', e);
     }
-
-    // Dispatch Promotion Email
-    try {
-      const { sendSystemNotification } = await import('../automations/emailService.js');
-      await sendSystemNotification({
-        eventType: 'level_promotion_approved',
-        recipientEmail: intern.email,
-        recipientName: intern.name,
-        variables: {
-          recipient_name: intern.name,
-          previous_level: String(previousLevel),
-          new_level: String(newLevel),
-          approver_name: currentUser.name,
-          action_url: `${req.protocol}://${req.get('host')}/tracker`,
-        },
-      });
-    } catch (e) {
-      console.warn('[Email] Promotion email warning:', e);
-    }
-
-    await logAdminAction({
-      userId: currentUser.id,
-      userName: currentUser.name,
-      action: 'LEVEL_PROMOTION_APPROVED',
-      resourceType: 'USER',
-      resourceId: internId,
-      details: { internName: intern.name, previousLevel, newLevel, approver: currentUser.name },
-      ipAddress: req.ip,
-    });
-
-    return res.json({
-      message: `Level promotion approved! ${intern.name} is now Level ${newLevel}.`,
-      previousLevel,
-      newLevel,
-    });
+    updateFields.role = USER_ROLES.PAID_INTERN;
+    updateFields.intern_type = INTERN_TYPES.PAID;
+    updateFields.paired_paid_intern_id = null;
   }
 
-  await logAdminAction({
-    userId: currentUser.id,
-    userName: currentUser.name,
-    action: 'LEVEL_PROMOTION_DEFERRED',
-    resourceType: 'USER',
-    resourceId: internId,
-    details: { internName: intern.name, currentLevel: previousLevel, notes },
-    ipAddress: req.ip,
-  });
+  await db('users').where({ id: internId }).update(updateFields);
 
   return res.json({
-    message: `Promotion for ${intern.name} was deferred. Level remains at ${previousLevel}.`,
-    currentLevel: previousLevel,
+    message: isApproved
+      ? `Level ${previousLevel} passed successfully! Advanced to Level ${newLevel}.`
+      : `Level ${previousLevel} marked to repeat.`,
+    newLevel,
+    promotedToCore: updateFields.role === USER_ROLES.PAID_INTERN,
   });
 }
 
-
-export async function getAuditLogs(req: Request, res: Response) {
+export async function updateUser(req: Request, res: Response) {
   const currentUser = req.user!;
+  const { id } = req.params;
+  const { name, email, phone, joiningDate, currentLevel, marksheetPercentage, status } = req.body;
 
   if (currentUser.role !== USER_ROLES.ADMIN && currentUser.role !== USER_ROLES.LEAD) {
-    return res.status(403).json({ message: 'Unauthorized to view administrative audit logs' });
+    return res.status(403).json({ message: 'Only authorized administrators can modify member details.' });
   }
 
-  const logs = await db('audit_logs')
-    .orderBy('created_at', 'desc')
-    .limit(100);
+  const user = await db('users').where({ id }).first();
+  if (!user) {
+    return res.status(404).json({ message: 'User not found' });
+  }
 
+  if (email && email !== user.email) {
+    const existing = await db('users').where({ email }).whereNot({ id }).first();
+    if (existing) {
+      return res.status(400).json({ message: 'An account with this email address already exists.' });
+    }
+  }
+
+  const updatePayload: Record<string, any> = {
+    updated_at: new Date(),
+  };
+
+  if (name !== undefined) updatePayload.name = name;
+  if (email !== undefined) updatePayload.email = email;
+  if (phone !== undefined) updatePayload.phone = phone;
+  if (joiningDate !== undefined) updatePayload.joining_date = joiningDate;
+  if (currentLevel !== undefined) updatePayload.current_level = currentLevel;
+  if (marksheetPercentage !== undefined) updatePayload.marksheet_percentage = marksheetPercentage;
+  if (status !== undefined) updatePayload.status = status;
+
+  await db('users').where({ id }).update(updatePayload);
+
+  return res.json({ message: 'Member updated successfully', user: { ...user, ...updatePayload } });
+}
+
+export async function getAuditLogs(req: Request, res: Response) {
+  const logs = await db('audit_logs').orderBy('created_at', 'desc').limit(50);
   return res.json(logs);
 }

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { apiRequest } from '../lib/api.js';
-import { USER_ROLES, type UserRole } from '@command-center/shared';
+import type { UserRole } from '@command-center/shared';
 
 export interface User {
   id: string;
@@ -19,8 +19,7 @@ interface AuthContextValue {
   currentUser: User | null;
   isLoading: boolean;
   login: (email: string, pass: string) => Promise<void>;
-  googleLogin: (email: string, name?: string) => Promise<void>;
-  switchPersona: (role: UserRole) => Promise<void>;
+  microsoftLogin: () => void;
   logout: () => Promise<void>;
 }
 
@@ -60,27 +59,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setCurrentUser(res.user);
   };
 
-  const googleLogin = async (email: string, name?: string) => {
-    const res = await apiRequest<{ accessToken: string; user: User }>('/auth/google-signin', {
-      method: 'POST',
-      body: JSON.stringify({ email, name }),
-    });
-    localStorage.setItem('token', res.accessToken);
-    setCurrentUser(res.user);
-  };
-
-  const switchPersona = async (role: UserRole) => {
-    setIsLoading(true);
-    try {
-      const res = await apiRequest<{ accessToken: string; user: User }>('/auth/mock-sso', {
-        method: 'POST',
-        body: JSON.stringify({ role }),
-      });
-      localStorage.setItem('token', res.accessToken);
-      setCurrentUser(res.user);
-    } finally {
-      setIsLoading(false);
-    }
+  const microsoftLogin = () => {
+    window.location.href = '/api/auth/microsoft-signin';
   };
 
   const logout = async () => {
@@ -95,7 +75,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ currentUser, isLoading, login, googleLogin, switchPersona, logout }}>
+    <AuthContext.Provider value={{ currentUser, isLoading, login, microsoftLogin, logout }}>
       {children}
     </AuthContext.Provider>
   );

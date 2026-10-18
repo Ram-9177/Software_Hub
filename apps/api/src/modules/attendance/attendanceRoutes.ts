@@ -24,7 +24,8 @@ router.get('/register', getRegister);
 router.post('/check-in', checkIn);
 router.post('/check-out', checkOut);
 router.get('/rules', getAttendanceRules);
-router.put('/rules', requireRole(USER_ROLES.ADMIN, USER_ROLES.LEAD), validateBody(updateAttendanceRulesSchema), updateAttendanceRules);
+// Admin only sets attendance rules
+router.put('/rules', requireRole(USER_ROLES.ADMIN), validateBody(updateAttendanceRulesSchema), updateAttendanceRules);
 router.get('/leave', getLeaveRequests);
 router.post('/leave', validateBody(requestLeaveSchema), requestLeave);
 router.post('/leave/:id/review', requireRole(USER_ROLES.ADMIN, USER_ROLES.LEAD), reviewLeaveRequest);

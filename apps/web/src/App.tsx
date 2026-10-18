@@ -17,16 +17,16 @@ import { PublicVerifyScreen } from './screens/PublicVerify/PublicVerifyScreen.js
 import { LoginScreen } from './screens/Login/LoginScreen.js';
 
 export const App: React.FC = () => {
-  const { currentUser, isLoading, switchPersona, logout } = useAuth();
+  const { currentUser, isLoading, logout } = useAuth();
 
   if (isLoading) {
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-900 text-white gap-3">
-        <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center font-black text-lg animate-bounce">
+        <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center font-black text-lg animate-pulse">
           CC
         </div>
         <p className="text-xs font-semibold tracking-wider text-slate-400">
-          Initializing Command Center...
+          Loading Command Center...
         </p>
       </div>
     );
@@ -49,7 +49,6 @@ export const App: React.FC = () => {
             <AppLayout
               currentUser={currentUser}
               onLogout={logout}
-              onSwitchUser={switchPersona}
             />
           }
         >
@@ -70,4 +69,3 @@ export const App: React.FC = () => {
     </Routes>
   );
 };
-

@@ -9,8 +9,11 @@ import { db } from './config/database.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { initSocketIO } from './sockets/index.js';
 
+import cookieParser from 'cookie-parser';
+
 // Route imports
 import authRoutes from './modules/auth/authRoutes.js';
+import inviteRoutes from './modules/invites/inviteRoutes.js';
 import userRoutes from './modules/users/userRoutes.js';
 import taskRoutes from './modules/tasks/taskRoutes.js';
 import attendanceRoutes from './modules/attendance/attendanceRoutes.js';
@@ -37,6 +40,7 @@ app.use(
     credentials: true,
   })
 );
+app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -49,7 +53,9 @@ app.use('/uploads', express.static(uploadDir));
 
 // API Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/invites', inviteRoutes);
 app.use('/api/users', userRoutes);
+
 app.use('/api/tasks', taskRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/certificates', certificateRoutes);
@@ -76,6 +82,8 @@ app.use(errorHandler);
 // Initialize WebSockets
 initSocketIO(server);
 
+import { initScheduler } from './modules/automations/scheduler.js';
+
 // Boot database & server
 export async function startServer() {
   try {
@@ -89,12 +97,15 @@ export async function startServer() {
     // Seed database if empty
     const userCount = await db('users').count('id as count').first();
     if (!userCount || Number(userCount.count) === 0) {
-      console.log('[Database] Seeding initial mock data from specification...');
+      console.log('[Database] Seeding initial admin from specification...');
       await db.seed.run({
         directory: path.resolve(process.cwd(), 'src/db/seeds'),
       });
       console.log('[Database] Seed completed successfully.');
     }
+
+    // Initialize scheduler
+    initScheduler();
 
     server.listen(ENV.PORT, () => {
       console.log(`====================================================`);

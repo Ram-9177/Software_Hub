@@ -1,31 +1,7 @@
 import type { Request, Response } from 'express';
 import { db } from '../../config/database.js';
 import { ATTENDANCE_STATUSES, USER_ROLES } from '@command-center/shared';
-import { createNotification } from '../notifications/notificationsController.js';
-import { sendSystemNotification } from '../automations/emailService.js';
 import { logAdminAction } from '../users/userController.js';
-
-// Campus Geofence Configuration (St. Mary's Rehabilitation University)
-const CAMPUS_CONFIG = {
-  name: "St. Mary's Rehabilitation University Main Campus",
-  latitude: 17.4483,
-  longitude: 78.3915,
-  radiusMeters: 800, // 800 meter authorized radius
-};
-
-function calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371e3;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
 
 function getTodayDateString(): string {
   const now = new Date();
@@ -33,7 +9,7 @@ function getTodayDateString(): string {
 }
 
 // ----------------------------------------------------------------------
-// 1. TODAY'S ATTENDANCE (Strict Privacy Enforced)
+// 1. TODAY'S ATTENDANCE
 // ----------------------------------------------------------------------
 export async function getTodayAttendance(req: Request, res: Response) {
   const currentUser = req.user!;
@@ -41,7 +17,7 @@ export async function getTodayAttendance(req: Request, res: Response) {
   const isManagement = currentUser.role === USER_ROLES.ADMIN || currentUser.role === USER_ROLES.LEAD;
 
   if (!isManagement) {
-    // Individual member/intern: STRICT PRIVACY — Return only own record
+    // Individual intern: strict privacy — sees only own record
     const myRecord = await db('attendance').where({ user_id: currentUser.id, date: today }).first();
     const isPresent = myRecord?.status === ATTENDANCE_STATUSES.PRESENT || myRecord?.status === ATTENDANCE_STATUSES.LATE;
 
@@ -61,13 +37,12 @@ export async function getTodayAttendance(req: Request, res: Response) {
           checkInTime: myRecord?.check_in_time || null,
           checkOutTime: myRecord?.check_out_time || null,
           status: myRecord?.status || 'not_yet',
-          withinCampus: myRecord?.within_campus_boundary ?? null,
         },
       ],
     });
   }
 
-  // Admin & Co-Admin: Full authorized roster visibility
+  // Admin & Co-Admin: Authorized roster visibility
   const allUsers = await db('users').where({ status: 'active' }).select('id', 'name', 'role', 'intern_type');
   const todayRecords = await db('attendance').where({ date: today });
   const recordMap = new Map(todayRecords.map((r) => [r.user_id, r]));
@@ -82,7 +57,6 @@ export async function getTodayAttendance(req: Request, res: Response) {
       checkInTime: record?.check_in_time || null,
       checkOutTime: record?.check_out_time || null,
       status: record?.status || 'not_yet',
-      withinCampus: record?.within_campus_boundary ?? null,
     };
   });
 
@@ -102,14 +76,13 @@ export async function getTodayAttendance(req: Request, res: Response) {
 }
 
 // ----------------------------------------------------------------------
-// 2. ATTENDANCE REGISTER (Strict Privacy Enforced)
+// 2. ATTENDANCE REGISTER (Calculated from real rows)
 // ----------------------------------------------------------------------
 export async function getRegister(req: Request, res: Response) {
   const currentUser = req.user!;
   const targetUserId = (req.query.userId as string) || currentUser.id;
   const isManagement = currentUser.role === USER_ROLES.ADMIN || currentUser.role === USER_ROLES.LEAD;
 
-  // Strict backend check: Non-management users can NEVER view others' register
   if (!isManagement && targetUserId !== currentUser.id) {
     return res.status(403).json({
       message: 'Attendance Privacy Notice: You are only authorized to view your own attendance register.',
@@ -118,35 +91,36 @@ export async function getRegister(req: Request, res: Response) {
 
   const records = await db('attendance')
     .where({ user_id: targetUserId })
-    .orderBy('date', 'asc');
+    .orderBy('date', 'desc');
 
   const total = records.length;
   const present = records.filter(
     (r) => r.status === ATTENDANCE_STATUSES.PRESENT || r.status === ATTENDANCE_STATUSES.LATE
   ).length;
   const late = records.filter((r) => r.status === ATTENDANCE_STATUSES.LATE).length;
+  const halfDay = records.filter((r) => r.status === ATTENDANCE_STATUSES.HALF_DAY).length;
   const leave = records.filter((r) => r.status === ATTENDANCE_STATUSES.LEAVE).length;
 
-  const attendancePct = total > 0 ? Math.round((present / total) * 100) : 95;
+  const attendancePct = total > 0 ? Math.round(((present + halfDay * 0.5) / total) * 100) : 0;
 
   return res.json({
     userId: targetUserId,
     attendanceThisMonth: attendancePct,
     daysPresent: present,
     lateArrivals: late,
+    halfDays: halfDay,
     leaveTaken: leave,
     records,
   });
 }
 
 // ----------------------------------------------------------------------
-// 3. LOCATION-BASED CHECK-IN
+// 3. SIMPLE CHECK-IN (NO Location Tracking)
 // ----------------------------------------------------------------------
 export async function checkIn(req: Request, res: Response) {
   const currentUser = req.user!;
   const today = getTodayDateString();
   const now = new Date();
-  const { latitude, longitude, accuracy } = req.body;
 
   const existing = await db('attendance')
     .where({ user_id: currentUser.id, date: today })
@@ -156,22 +130,10 @@ export async function checkIn(req: Request, res: Response) {
     return res.status(400).json({ message: 'Already checked in for today' });
   }
 
-  // Geofence Validation
-  let withinCampus: boolean | null = null;
-  if (typeof latitude === 'number' && typeof longitude === 'number') {
-    const distance = calculateDistanceMeters(
-      latitude,
-      longitude,
-      CAMPUS_CONFIG.latitude,
-      CAMPUS_CONFIG.longitude
-    );
-    withinCampus = distance <= CAMPUS_CONFIG.radiusMeters;
-  }
-
-  // Check against attendance rules
+  // Calculate status according to admin rules
   const rules = await db('attendance_rules').first();
   const [startHour, startMinute] = (rules?.office_start_time || '09:00').split(':').map(Number);
-  const graceMinutes = rules?.grace_minutes || 15;
+  const graceMinutes = Number(rules?.grace_minutes ?? 15);
   const [cutoffHour, cutoffMinute] = (rules?.absent_cutoff_time || '11:00').split(':').map(Number);
 
   const startWithGrace = new Date(now);
@@ -191,11 +153,6 @@ export async function checkIn(req: Request, res: Response) {
   const recordPayload = {
     check_in_time: now,
     status,
-    latitude: latitude ?? null,
-    longitude: longitude ?? null,
-    location_accuracy: accuracy ?? null,
-    within_campus_boundary: withinCampus,
-    check_in_ip: req.ip || null,
     updated_at: now,
   };
 
@@ -210,29 +167,20 @@ export async function checkIn(req: Request, res: Response) {
     });
   }
 
-  const locationMsg =
-    withinCampus === true
-      ? 'Verified on University Campus'
-      : withinCampus === false
-      ? 'Recorded (Off-Campus location noted)'
-      : 'Recorded (Location permission not granted)';
-
   return res.json({
-    message: `Checked in successfully as ${status}. ${locationMsg}.`,
+    message: `Checked in successfully as ${status}.`,
     status,
     checkInTime: now,
-    withinCampus,
   });
 }
 
 // ----------------------------------------------------------------------
-// 4. LOCATION-BASED CHECK-OUT
+// 4. SIMPLE CHECK-OUT (NO Location Tracking)
 // ----------------------------------------------------------------------
 export async function checkOut(req: Request, res: Response) {
   const currentUser = req.user!;
   const today = getTodayDateString();
   const now = new Date();
-  const { latitude, longitude, accuracy } = req.body;
 
   const record = await db('attendance')
     .where({ user_id: currentUser.id, date: today })
@@ -244,7 +192,7 @@ export async function checkOut(req: Request, res: Response) {
 
   const durationHours = (now.getTime() - new Date(record.check_in_time).getTime()) / (1000 * 60 * 60);
   const rules = await db('attendance_rules').first();
-  const minHalfDay = rules?.half_day_hours || 4.0;
+  const minHalfDay = Number(rules?.half_day_hours ?? 4.0);
 
   let status = record.status;
   if (durationHours < minHalfDay && status === ATTENDANCE_STATUSES.PRESENT) {
@@ -254,127 +202,107 @@ export async function checkOut(req: Request, res: Response) {
   await db('attendance').where({ id: record.id }).update({
     check_out_time: now,
     status,
-    check_out_ip: req.ip || null,
     updated_at: now,
   });
 
   return res.json({
-    message: `Checked out successfully. Total worked: ${durationHours.toFixed(1)} hrs.`,
+    message: `Checked out successfully. Shift duration: ${durationHours.toFixed(1)} hours.`,
     status,
     checkOutTime: now,
     durationHours: Number(durationHours.toFixed(1)),
   });
 }
 
+// ----------------------------------------------------------------------
+// 5. ATTENDANCE RULES (Admin Configurable)
+// ----------------------------------------------------------------------
 export async function getAttendanceRules(_req: Request, res: Response) {
-  const rules = await db('attendance_rules').first();
-  return res.json({
-    ...rules,
-    campusGeofence: CAMPUS_CONFIG,
-  });
+  let rules = await db('attendance_rules').first();
+  if (!rules) {
+    const defaultRules = {
+      id: 'att-rules-default',
+      office_start_time: '09:00',
+      grace_minutes: 15,
+      half_day_hours: 4.0,
+      absent_cutoff_time: '11:00',
+      updated_at: new Date(),
+    };
+    await db('attendance_rules').insert(defaultRules);
+    rules = defaultRules;
+  }
+  return res.json(rules);
 }
 
 export async function updateAttendanceRules(req: Request, res: Response) {
   const currentUser = req.user!;
-  if (currentUser.role !== USER_ROLES.ADMIN && currentUser.role !== USER_ROLES.LEAD) {
-    return res.status(403).json({ message: 'Only Admin and Co-Admin can modify attendance rules' });
+
+  if (currentUser.role !== USER_ROLES.ADMIN) {
+    return res.status(403).json({ message: 'Only Primary Administrators can modify attendance rules.' });
   }
 
   const { officeStartTime, graceMinutes, halfDayHours, absentCutoffTime } = req.body;
 
-  await db('attendance_rules').update({
-    office_start_time: officeStartTime,
-    grace_minutes: graceMinutes,
-    half_day_hours: halfDayHours,
-    absent_cutoff_time: absentCutoffTime,
+  const updates: Record<string, any> = {
     updated_at: new Date(),
-  });
+  };
+
+  if (officeStartTime !== undefined) updates.office_start_time = officeStartTime;
+  if (graceMinutes !== undefined) updates.grace_minutes = Number(graceMinutes);
+  if (halfDayHours !== undefined) updates.half_day_hours = Number(halfDayHours);
+  if (absentCutoffTime !== undefined) updates.absent_cutoff_time = absentCutoffTime;
+
+  const existing = await db('attendance_rules').first();
+  if (existing) {
+    await db('attendance_rules').where({ id: existing.id }).update(updates);
+  } else {
+    await db('attendance_rules').insert({
+      id: 'att-rules-default',
+      office_start_time: '09:00',
+      grace_minutes: 15,
+      half_day_hours: 4.0,
+      absent_cutoff_time: '11:00',
+      ...updates,
+    });
+  }
 
   await logAdminAction({
     userId: currentUser.id,
     userName: currentUser.name,
     action: 'ATTENDANCE_RULES_UPDATED',
-    resourceType: 'ATTENDANCE',
-    details: { officeStartTime, graceMinutes, halfDayHours, absentCutoffTime },
+    resourceType: 'ATTENDANCE_RULES',
+    details: updates,
     ipAddress: req.ip,
   });
 
-  return res.json({ message: 'Attendance rules updated successfully' });
+  return res.json({ message: 'Attendance rules updated successfully', rules: updates });
 }
 
 // ----------------------------------------------------------------------
-// 5. LEAVE REQUESTS & WORK-FROM-HOME WORKFLOW
+// 6. LEAVE REQUESTS & REVIEWS
 // ----------------------------------------------------------------------
 export async function requestLeave(req: Request, res: Response) {
   const currentUser = req.user!;
-  const {
-    startDate,
-    endDate,
-    leaveCategory = 'full_day',
-    partialDayDuration,
-    reason,
-    supportingDocumentUrl,
-  } = req.body;
+  const { startDate, endDate, reason, leaveCategory = 'full_day', partialDuration } = req.body;
 
   if (!startDate || !endDate || !reason) {
-    return res.status(400).json({ message: 'Start date, end date, and reason are required' });
+    return res.status(400).json({ message: 'Start date, end date, and reason are required.' });
   }
 
-  const id = `lr-${Date.now()}`;
+  const leaveId = `leave-${Date.now()}`;
   await db('leave_requests').insert({
-    id,
+    id: leaveId,
     user_id: currentUser.id,
     start_date: startDate,
     end_date: endDate,
-    leave_category: leaveCategory,
-    partial_day_duration: partialDayDuration || null,
     reason,
-    supporting_document_url: supportingDocumentUrl || null,
+    leave_category: leaveCategory,
+    partial_day_duration: partialDuration || null,
     status: 'pending',
+    created_at: new Date(),
+    updated_at: new Date(),
   });
 
-  // Notify all Admins and Co-Admins in-app
-  const admins = await db('users')
-    .whereIn('role', [USER_ROLES.ADMIN, USER_ROLES.LEAD])
-    .where({ status: 'active' });
-
-  for (const admin of admins) {
-    await createNotification({
-      userId: admin.id,
-      title: `Leave Request: ${currentUser.name}`,
-      message: `${currentUser.name} submitted a ${leaveCategory.replace(/_/g, ' ')} request (${startDate} to ${endDate}). Reason: ${reason}`,
-      type: 'leave_request',
-      resourceType: 'LEAVE',
-      resourceId: id,
-      actionUrl: '/attendance',
-    });
-  }
-
-  // Dispatch leave_received notification email
-  try {
-    for (const admin of admins) {
-      await sendSystemNotification({
-        eventType: 'leave_received',
-        recipientEmail: admin.email,
-        recipientName: admin.name,
-        variables: {
-          applicant_name: currentUser.name,
-          leave_category: leaveCategory.replace(/_/g, ' '),
-          leave_start_date: startDate,
-          leave_end_date: endDate,
-          reason,
-          action_url: `${req.protocol}://${req.get('host')}/attendance`,
-        },
-      });
-    }
-  } catch (err) {
-    console.warn('[LeaveRequest] Email notification warning:', err);
-  }
-
-  return res.status(201).json({
-    message: 'Leave application submitted successfully and sent to Admin/Co-Admin for review',
-    id,
-  });
+  return res.status(201).json({ message: 'Leave request submitted successfully', id: leaveId });
 }
 
 export async function getLeaveRequests(req: Request, res: Response) {
@@ -382,33 +310,28 @@ export async function getLeaveRequests(req: Request, res: Response) {
   const isManagement = currentUser.role === USER_ROLES.ADMIN || currentUser.role === USER_ROLES.LEAD;
 
   let query = db('leave_requests as lr')
-    .leftJoin('users as u', 'lr.user_id', 'u.id')
-    .leftJoin('users as rev', 'lr.reviewed_by', 'rev.id')
+    .join('users as u', 'lr.user_id', 'u.id')
     .select(
       'lr.id',
       'lr.user_id as userId',
       'u.name as userName',
       'u.role as userRole',
-      'u.email as userEmail',
-      'lr.leave_category as leaveCategory',
       'lr.start_date as startDate',
       'lr.end_date as endDate',
-      'lr.partial_day_duration as partialDayDuration',
       'lr.reason',
-      'lr.supporting_document_url as supportingDocumentUrl',
+      'lr.leave_category as leaveCategory',
+      'lr.partial_day_duration as partialDayDuration',
       'lr.status',
-      'lr.review_comment as reviewComment',
-      'lr.reviewed_at as reviewedAt',
-      'rev.name as reviewerName',
       'lr.created_at as createdAt'
-    );
+    )
+    .orderBy('lr.created_at', 'desc');
 
   if (!isManagement) {
-    query = query.where({ 'lr.user_id': currentUser.id });
+    query = query.where('lr.user_id', currentUser.id);
   }
 
-  const requests = await query.orderBy('lr.created_at', 'desc');
-  return res.json(requests);
+  const leaves = await query;
+  return res.json(leaves);
 }
 
 export async function reviewLeaveRequest(req: Request, res: Response) {
@@ -416,88 +339,18 @@ export async function reviewLeaveRequest(req: Request, res: Response) {
   const { id } = req.params;
   const { action, comment } = req.body;
 
-  // Strict backend enforcement: Only Admin and Co-Admin
   if (currentUser.role !== USER_ROLES.ADMIN && currentUser.role !== USER_ROLES.LEAD) {
-    return res.status(403).json({ message: 'Only Admin and Co-Admin may review leave requests.' });
+    return res.status(403).json({ message: 'Only Admin and Co-Admin can review leave requests.' });
   }
 
-  const leave = await db('leave_requests as lr')
-    .join('users as u', 'lr.user_id', 'u.id')
-    .where({ 'lr.id': id })
-    .select('lr.*', 'u.name as userName', 'u.email as userEmail')
-    .first();
-
-  if (!leave) {
-    return res.status(404).json({ message: 'Leave request not found' });
-  }
-
-  // Prevent self-approval
-  if (leave.user_id === currentUser.id) {
-    return res.status(400).json({ message: 'You cannot review or approve your own leave request.' });
-  }
-
-  let newStatus = 'approved';
-  let eventType = 'leave_approved';
-  if (action === 'reject') {
-    newStatus = 'rejected';
-    eventType = 'leave_rejected';
-  } else if (action === 'more_info') {
-    newStatus = 'more_info_needed';
-    eventType = 'leave_more_info';
-  }
-
-  const now = new Date();
+  const status = action === 'approve' ? 'approved' : 'rejected';
   await db('leave_requests').where({ id }).update({
-    status: newStatus,
+    status,
     reviewed_by: currentUser.id,
     review_comment: comment || null,
-    reviewed_at: now,
-    updated_at: now,
+    reviewed_at: new Date(),
+    updated_at: new Date(),
   });
 
-  // Notify the applicant in-app
-  await createNotification({
-    userId: leave.user_id,
-    title: `Leave Request ${newStatus === 'approved' ? 'Approved' : newStatus === 'rejected' ? 'Rejected' : 'Action Required'}`,
-    message: `Your ${leave.leave_category.replace(/_/g, ' ')} request has been marked as ${newStatus}. ${comment ? 'Reviewer notes: ' + comment : ''}`,
-    type: 'leave_request',
-    resourceType: 'LEAVE',
-    resourceId: id,
-    actionUrl: '/attendance',
-  });
-
-  // Dispatch leave decision email
-  try {
-    await sendSystemNotification({
-      eventType,
-      recipientEmail: leave.userEmail,
-      recipientName: leave.userName,
-      variables: {
-        recipient_name: leave.userName,
-        leave_category: leave.leave_category.replace(/_/g, ' '),
-        leave_start_date: leave.start_date,
-        leave_end_date: leave.end_date,
-        reviewer_name: currentUser.name,
-        review_comment: comment || 'Decision recorded by Central Office administration.',
-        action_url: `${req.protocol}://${req.get('host')}/attendance`,
-      },
-    });
-  } catch (err) {
-    console.warn('[LeaveReview] Email notification warning:', err);
-  }
-
-  await logAdminAction({
-    userId: currentUser.id,
-    userName: currentUser.name,
-    action: `LEAVE_${newStatus.toUpperCase()}`,
-    resourceType: 'LEAVE',
-    resourceId: id,
-    details: { applicant: leave.userName, status: newStatus, comment },
-    ipAddress: req.ip,
-  });
-
-  return res.json({
-    message: `Leave request has been ${newStatus}.`,
-    status: newStatus,
-  });
+  return res.json({ message: `Leave request ${status} successfully` });
 }

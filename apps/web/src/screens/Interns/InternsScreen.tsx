@@ -199,7 +199,7 @@ export const InternsScreen: React.FC = () => {
 
                     {/* Attendance */}
                     <td className="py-3.5 px-4 font-bold text-slate-800">
-                      {intern.attendancePercentage || 92}%
+                      {intern.attendancePercentage !== undefined ? `${intern.attendancePercentage}%` : '—'}
                     </td>
 
                     {/* Marksheet */}
@@ -209,10 +209,12 @@ export const InternsScreen: React.FC = () => {
                           <span className="text-emerald-700 font-semibold">
                             {intern.marksheetPercentage}% confirmed
                           </span>
-                        ) : (
+                        ) : intern.marksheetPercentage !== undefined && intern.marksheetPercentage !== null ? (
                           <span className="text-amber-700 font-semibold">
-                            {intern.marksheetPercentage || 78}% below 80%
+                            {intern.marksheetPercentage}% below 80%
                           </span>
+                        ) : (
+                          <span className="text-slate-400">Pending</span>
                         )
                       ) : (
                         <span className="text-slate-400">Not needed</span>

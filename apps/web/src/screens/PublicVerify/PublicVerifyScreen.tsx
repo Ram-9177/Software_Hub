@@ -10,8 +10,8 @@ import { ShieldCheck, AlertCircle, Search, ArrowLeft, Download, Award, School } 
 
 export const PublicVerifyScreen: React.FC = () => {
   const { certNumber: routeCertNumber } = useParams<{ certNumber?: string }>();
-  const [searchNumber, setSearchNumber] = useState(routeCertNumber || 'SH2-L2-0007');
-  const [activeLookup, setActiveLookup] = useState(routeCertNumber || 'SH2-L2-0007');
+  const [searchNumber, setSearchNumber] = useState(routeCertNumber || '');
+  const [activeLookup, setActiveLookup] = useState(routeCertNumber || '');
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['public-verify', activeLookup],
@@ -153,7 +153,7 @@ export const PublicVerifyScreen: React.FC = () => {
                 <div className="py-2 flex justify-between">
                   <span className="text-slate-500 dark:text-slate-400 font-medium">Issuing Authority</span>
                   <span className="font-bold text-slate-900 dark:text-slate-100">
-                    {cert.issuedByName || 'Sri Ram'} • Central Office Lead
+                    {cert.issuedByName || 'Central Office Administrator'} • Central Office Lead
                   </span>
                 </div>
               </div>

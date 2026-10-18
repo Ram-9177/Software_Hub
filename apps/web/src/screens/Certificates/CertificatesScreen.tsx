@@ -234,7 +234,7 @@ export const CertificatesScreen: React.FC = () => {
                 </div>
                 <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">Classic Gold Design</h4>
                 <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-                  Required: Attendance ≥ 85% · Minimum Level 1 · St. Mary’s Seal.
+                  Required: Attendance ≥ 75% · Minimum Level 1 · St. Mary’s Seal.
                 </p>
               </Card>
 
@@ -247,7 +247,7 @@ export const CertificatesScreen: React.FC = () => {
                 </div>
                 <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">Modern Central Office Design</h4>
                 <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-                  Required: Attendance ≥ 90% · Marksheet ≥ 80% confirmed · Level 2–15.
+                  Required: Attendance ≥ 75% · Marksheet ≥ 80% confirmed · Level 2–15.
                 </p>
               </Card>
             </div>
