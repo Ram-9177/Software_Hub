@@ -39,7 +39,7 @@ const treeHash = execSync('git write-tree', { cwd: rootDir, env }).toString().tr
 console.log('Tree hash:', treeHash);
 
 // Create a commit
-const commitMessage = 'Deploy updated build with client-side mock fallback engine to GitHub Pages';
+const commitMessage = 'Deploy updated Command Center rebuild to GitHub Pages';
 const commitHash = execSync(`git commit-tree ${treeHash} -m "${commitMessage}"`, {
   cwd: rootDir,
   env,
