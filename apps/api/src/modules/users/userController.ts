@@ -32,7 +32,13 @@ export async function logAdminAction(params: {
   }
 }
 
+import { getCached, setCached, deleteCached } from '../../config/redis.js';
+
 export async function getAdminSummary(req: Request, res: Response) {
+  const cacheKey = 'dashboard:admin_summary';
+  const cached = await getCached<any>(cacheKey);
+  if (cached) return res.json(cached);
+
   const admins = await db('users')
     .whereIn('role', [USER_ROLES.ADMIN, USER_ROLES.LEAD])
     .select('id', 'name', 'email', 'role', 'status', 'created_at as createdAt', 'joining_date as joiningDate');
@@ -43,14 +49,17 @@ export async function getAdminSummary(req: Request, res: Response) {
   const primaryAdmin = admins.find((a) => a.role === USER_ROLES.ADMIN) || null;
   const coAdmin = admins.find((a) => a.role === USER_ROLES.LEAD) || null;
 
-  return res.json({
+  const result = {
     maxAdmins: MAX_ADMIN_LIMIT,
     activeAdminsCount,
     availablePositions,
     primaryAdmin,
     coAdmin,
     admins,
-  });
+  };
+
+  await setCached(cacheKey, result, 60);
+  return res.json(result);
 }
 
 export async function grantAdminRole(req: Request, res: Response) {
@@ -90,6 +99,8 @@ export async function grantAdminRole(req: Request, res: Response) {
     role: targetRole,
     updated_at: new Date(),
   });
+
+  await deleteCached('dashboard:admin_summary');
 
   await logAdminAction({
     userId: currentUser.id,

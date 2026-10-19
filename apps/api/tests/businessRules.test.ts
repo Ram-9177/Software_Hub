@@ -26,20 +26,32 @@ describe('Command Center for Software Hub 2.0 - Core Business Rules, 5-Admin Lim
       directory: path.resolve(process.cwd(), 'src/db/seeds'),
     });
 
-    // Obtain tokens for all 4 roles via mock SSO
-    const adminRes = await request(app).post('/api/auth/mock-sso').send({ role: 'admin' });
+    // Obtain tokens for all 4 roles via real institutional login
+    const adminRes = await request(app).post('/api/auth/login').send({
+      email: 'sriram@smru.edu.in',
+      password: process.env.SEED_ADMIN_PASSWORD || 'AdminPass123!@#',
+    });
     adminToken = adminRes.body.accessToken;
     adminUserId = adminRes.body.user.id;
 
-    const leadRes = await request(app).post('/api/auth/mock-sso').send({ role: 'lead' });
+    const leadRes = await request(app).post('/api/auth/login').send({
+      email: 'sheshitejs@gmail.com',
+      password: process.env.SEED_COADMIN_PASSWORD || 'CoadminPass123!@#',
+    });
     leadToken = leadRes.body.accessToken;
     leadUserId = leadRes.body.user.id;
 
-    const coreRes = await request(app).post('/api/auth/mock-sso').send({ role: 'paid_intern' });
+    const coreRes = await request(app).post('/api/auth/login').send({
+      email: 'gundasurya600@gmail.com',
+      password: process.env.SEED_CORE_PASSWORD || 'CorePass123!@#',
+    });
     coreToken = coreRes.body.accessToken;
     coreUserId = coreRes.body.user.id;
 
-    const unpaidRes = await request(app).post('/api/auth/mock-sso').send({ role: 'unpaid_intern' });
+    const unpaidRes = await request(app).post('/api/auth/login').send({
+      email: 'anaalia092@gmail.com',
+      password: process.env.SEED_INTERN_PASSWORD || 'InternPass123!@#',
+    });
     unpaidToken = unpaidRes.body.accessToken;
     unpaidUserId = unpaidRes.body.user.id;
 
@@ -218,4 +230,117 @@ describe('Command Center for Software Hub 2.0 - Core Business Rules, 5-Admin Lim
       expect(res.headers['content-type']).toContain('spreadsheetml');
     });
   });
+
+  describe('5. Institutional Invites & Secure Onboarding', () => {
+    let inviteToken: string;
+    const inviteEmail = `new_intern_${Date.now()}@smru.edu.in`;
+
+    it('rejects public self-registration with HTTP 403', async () => {
+      const res = await request(app)
+        .post('/api/auth/register')
+        .send({
+          email: 'random@smru.edu.in',
+          password: 'Password123!',
+          name: 'Random User',
+        });
+
+      expect(res.status).toBe(403);
+      expect(res.body.message).toContain('Public registration is disabled');
+    });
+
+    it('allows Admin to create an invite link', async () => {
+      const res = await request(app)
+        .post('/api/invites')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          name: 'Invited Intern',
+          email: inviteEmail,
+          role: 'unpaid_intern',
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.token).toBeDefined();
+      inviteToken = res.body.token;
+    });
+
+    it('validates pending invite token details', async () => {
+      const res = await request(app).get(`/api/invites/verify/${inviteToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.email).toBe(inviteEmail);
+      expect(res.body.role).toBe('unpaid_intern');
+    });
+
+    it('accepts valid invite and creates account', async () => {
+      const res = await request(app)
+        .post('/api/invites/accept')
+        .send({
+          token: inviteToken,
+          password: 'NewStrongPassword123!@#',
+        });
+
+      expect([200, 201]).toContain(res.status);
+      expect(res.body.accessToken).toBeDefined();
+    });
+
+    it('burns single-use invite so second attempt fails', async () => {
+      const res = await request(app)
+        .post('/api/invites/accept')
+        .send({
+          token: inviteToken,
+          password: 'NewStrongPassword123!@#',
+        });
+
+      expect([400, 410]).toContain(res.status);
+    });
+  });
+
+  describe('6. Account Security, Lockout & Password Change', () => {
+    it('seeded accounts have must_change_password set to true initially', async () => {
+      const res = await request(app)
+        .get('/api/auth/me')
+        .set('Authorization', `Bearer ${coreToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.mustChangePassword).toBe(true);
+    });
+
+    it('locks out account after 5 consecutive failed login attempts', async () => {
+      const targetEmail = `lockout_test_${Date.now()}@smru.edu.in`;
+      const pass = 'CorrectPassword123!@#';
+      const cId = `u-lockout-${Date.now()}`;
+
+      // Insert fresh test user
+      const bcrypt = (await import('bcryptjs')).default;
+      const hash = await bcrypt.hash(pass, 10);
+      await db('users').insert({
+        id: cId,
+        name: 'Lockout Test User',
+        email: targetEmail,
+        password_hash: hash,
+        role: 'unpaid_intern',
+        status: 'active',
+        token_version: 1,
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+
+      // 5 consecutive failed attempts
+      for (let i = 0; i < 5; i++) {
+        await request(app).post('/api/auth/login').send({
+          email: targetEmail,
+          password: 'WrongPassword!',
+        });
+      }
+
+      // 6th attempt (even with correct password) must be locked out
+      const lockedRes = await request(app).post('/api/auth/login').send({
+        email: targetEmail,
+        password: pass,
+      });
+
+      expect(lockedRes.status).toBe(423);
+      expect(lockedRes.body.message).toContain('locked');
+    });
+  });
 });
+

@@ -321,6 +321,18 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ currentUser, onLogout }) =
             <button
               type="button"
               onClick={() => {
+                navigate('/profile');
+                setIsMoreSheetOpen(false);
+              }}
+              className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-slate-200 dark:border-slate-800 text-left min-h-[44px] transition-colors"
+            >
+              <Users className="w-4 h-4 text-emerald-500" />
+              <span>Profile & Settings</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
                 navigate('/verify');
                 setIsMoreSheetOpen(false);
               }}

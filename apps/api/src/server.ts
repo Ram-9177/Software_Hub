@@ -10,6 +10,7 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { initSocketIO } from './sockets/index.js';
 
 import cookieParser from 'cookie-parser';
+import compression from 'compression';
 
 // Route imports
 import authRoutes from './modules/auth/authRoutes.js';
@@ -40,6 +41,7 @@ app.use(
     credentials: true,
   })
 );
+app.use(compression());
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));

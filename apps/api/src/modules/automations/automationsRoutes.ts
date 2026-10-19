@@ -7,6 +7,7 @@ import {
   getEmailTemplates,
   muteUserNotifications,
   triggerScheduledJob,
+  sendTestEmail,
 } from './automationsController.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
 import { requireRole } from '../../middleware/authorize.js';
@@ -28,5 +29,6 @@ router.get('/:id/preview', requireRole(USER_ROLES.ADMIN, USER_ROLES.LEAD), previ
 router.get('/logs', requireRole(USER_ROLES.ADMIN), getEmailLogs);
 router.get('/email-logs/list', requireRole(USER_ROLES.ADMIN), getEmailLogs);
 router.post('/jobs/:jobKey/run', requireRole(USER_ROLES.ADMIN), triggerScheduledJob);
+router.post('/test-email', requireRole(USER_ROLES.ADMIN), sendTestEmail);
 
 export default router;

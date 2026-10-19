@@ -14,6 +14,7 @@ import {
   ChevronRight,
   Sun,
   Moon,
+  User,
 } from 'lucide-react';
 import { USER_ROLES, type UserRole } from '@command-center/shared';
 import { useTheme } from '../../contexts/ThemeContext.js';
@@ -62,6 +63,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { to: '/tracker', label: 'Tracker', icon: BarChart2 },
     { to: '/certificates', label: certsLabel, icon: Award },
     ...(isAdmin || isLead ? [{ to: '/automations', label: 'Automations', icon: Zap }] : []),
+    { to: '/profile', label: 'Profile & Settings', icon: User },
   ];
 
   const getInitials = (name: string) => {

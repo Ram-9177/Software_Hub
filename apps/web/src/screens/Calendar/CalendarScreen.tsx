@@ -8,21 +8,25 @@ import { Modal } from '../../components/ui/Modal.js';
 import { Input } from '../../components/ui/Input.js';
 import { Select } from '../../components/ui/Select.js';
 import { useToast } from '../../components/ui/Toast.js';
-import { Plus, Calendar as CalendarIcon, Clock, Users, RefreshCw, CheckCircle, ExternalLink, Search } from 'lucide-react';
+import { Plus, Calendar as CalendarIcon, Clock, Users, RefreshCw, CheckCircle, ExternalLink, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 
 export const CalendarScreen: React.FC = () => {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
 
+  const [viewDate, setViewDate] = useState(() => new Date());
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+
   const [activeView, setActiveView] = useState<'month' | 'week' | 'day' | 'list'>('month');
-  const [selectedDay, setSelectedDay] = useState<number>(16); // default Oct 16
+  const [selectedDay, setSelectedDay] = useState<number>(() => new Date().getDate());
   const [filterType, setFilterType] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [eventTitle, setEventTitle] = useState('');
   const [eventType, setEventType] = useState('meeting');
-  const [eventDate, setEventDate] = useState('2026-10-20');
+  const [eventDate, setEventDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [eventTime, setEventTime] = useState('10:00');
   const [eventLocation, setEventLocation] = useState('');
 
@@ -106,14 +110,14 @@ export const CalendarScreen: React.FC = () => {
     });
   }, [events, filterType, searchQuery]);
 
-  // Map events by day of October 2026
+  // Map events by day of current viewing month
   const eventsByDay = useMemo(() => {
     const map: Record<number, any[]> = {};
     filteredEvents.forEach((e: any) => {
       try {
         const d = new Date(e.startTime);
-        if (d.getUTCFullYear() === 2026 && d.getUTCMonth() === 9) {
-          const dayNum = d.getUTCDate();
+        if (d.getFullYear() === year && d.getMonth() === month) {
+          const dayNum = d.getDate();
           if (!map[dayNum]) map[dayNum] = [];
           map[dayNum].push(e);
         }
@@ -122,17 +126,20 @@ export const CalendarScreen: React.FC = () => {
       }
     });
     return map;
-  }, [filteredEvents]);
+  }, [filteredEvents, year, month]);
 
-  // Calendar grid days for October 2026 (Mon to Sun: Oct 1 is Thursday)
+  // Calendar grid days computed dynamically
   const daysInGrid = useMemo(() => {
-    const grid: any[] = [
-      { day: 28, isCurrentMonth: false, events: [] },
-      { day: 29, isCurrentMonth: false, events: [] },
-      { day: 30, isCurrentMonth: false, events: [] },
-    ];
+    const grid: any[] = [];
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const firstDayIndex = (new Date(year, month, 1).getDay() + 6) % 7; // Monday = 0
+    const prevMonthDays = new Date(year, month, 0).getDate();
 
-    for (let i = 1; i <= 31; i++) {
+    for (let i = firstDayIndex - 1; i >= 0; i--) {
+      grid.push({ day: prevMonthDays - i, isCurrentMonth: false, events: [] });
+    }
+
+    for (let i = 1; i <= daysInMonth; i++) {
       grid.push({
         day: i,
         isCurrentMonth: true,
@@ -140,9 +147,13 @@ export const CalendarScreen: React.FC = () => {
       });
     }
 
-    grid.push({ day: 1, isCurrentMonth: false, events: [] });
+    const remaining = (7 - (grid.length % 7)) % 7;
+    for (let i = 1; i <= remaining; i++) {
+      grid.push({ day: i, isCurrentMonth: false, events: [] });
+    }
+
     return grid;
-  }, [eventsByDay]);
+  }, [eventsByDay, year, month]);
 
   const comingUp = useMemo(() => {
     const sorted = [...filteredEvents]
@@ -286,6 +297,39 @@ export const CalendarScreen: React.FC = () => {
         <div className="lg:col-span-8">
           {activeView === 'month' && (
             <Card padding="none" className="overflow-hidden">
+              <div className="p-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-sm font-bold text-slate-900 dark:text-white">
+                    {viewDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                  </h2>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setViewDate(new Date(year, month - 1, 1))}
+                    className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
+                    aria-label="Previous Month"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewDate(new Date())}
+                    className="px-2 py-1 text-[11px] font-semibold rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
+                  >
+                    Today
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewDate(new Date(year, month + 1, 1))}
+                    className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
+                    aria-label="Next Month"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
               <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50 text-center py-2.5 text-[11px] font-bold text-slate-600">
                 <span>Mon</span>
                 <span>Tue</span>
@@ -297,31 +341,38 @@ export const CalendarScreen: React.FC = () => {
               </div>
 
               <div className="grid grid-cols-7 auto-rows-fr divide-x divide-y divide-slate-100">
-                {daysInGrid.map((cell, idx) => (
-                  <div
-                    key={idx}
-                    onClick={() => cell.isCurrentMonth && setSelectedDay(cell.day)}
-                    className={`min-h-[96px] p-2 flex flex-col justify-between transition-colors cursor-pointer ${
-                      !cell.isCurrentMonth
-                        ? 'bg-slate-50/50 text-slate-300'
-                        : cell.day === selectedDay
-                        ? 'bg-blue-50/40 ring-1 ring-blue-500 inset-0'
-                        : 'bg-white hover:bg-slate-50/70'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span
-                        className={`text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full ${
-                          cell.day === 16 && cell.isCurrentMonth
-                            ? 'bg-blue-600 text-white'
-                            : cell.isCurrentMonth
-                            ? 'text-slate-800'
-                            : 'text-slate-300'
-                        }`}
-                      >
-                        {cell.day}
-                      </span>
-                    </div>
+                {daysInGrid.map((cell, idx) => {
+                  const isToday =
+                    cell.isCurrentMonth &&
+                    cell.day === new Date().getDate() &&
+                    month === new Date().getMonth() &&
+                    year === new Date().getFullYear();
+
+                  return (
+                    <div
+                      key={idx}
+                      onClick={() => cell.isCurrentMonth && setSelectedDay(cell.day)}
+                      className={`min-h-[96px] p-2 flex flex-col justify-between transition-colors cursor-pointer ${
+                        !cell.isCurrentMonth
+                          ? 'bg-slate-50/50 text-slate-300'
+                          : cell.day === selectedDay
+                          ? 'bg-blue-50/40 ring-1 ring-blue-500 inset-0'
+                          : 'bg-white hover:bg-slate-50/70'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span
+                          className={`text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full ${
+                            isToday
+                              ? 'bg-blue-600 text-white'
+                              : cell.isCurrentMonth
+                              ? 'text-slate-800'
+                              : 'text-slate-300'
+                          }`}
+                        >
+                          {cell.day}
+                        </span>
+                      </div>
 
                     <div className="space-y-1 mt-1">
                       {cell.events.slice(0, 2).map((ev: any) => (
@@ -346,9 +397,10 @@ export const CalendarScreen: React.FC = () => {
                       )}
                     </div>
                   </div>
-                ))}
-              </div>
-            </Card>
+                );
+              })}
+            </div>
+          </Card>
           )}
 
           {activeView === 'day' && (

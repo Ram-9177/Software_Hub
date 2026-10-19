@@ -1,130 +1,114 @@
-# Software Hub 2.0 — Central Office Command Center
+# Command Center — Central Office Work App
 ### St. Mary’s Rehabilitation University
 
-A unified administrative management platform, real-time operations command hub, and credential issuance system designed for university leadership, faculty leads, and software engineering interns.
+The official, production-grade work operations and credential issuance platform for St. Mary’s Rehabilitation University Central Office. Engineered for speed, reliability, and security across mobile (360px+) and desktop devices.
 
 ---
 
-## 🏛️ Project Overview
+## 🏛️ System Overview
 
-The **Software Hub 2.0 Command Center** is a secure, production-ready enterprise university management platform supporting:
+The **Command Center** provides an end-to-end operational hub for university leadership, faculty coordinators, and student interns:
 
-- **Executive Central Office Roster**: Support for official administrators, faculty co-admins, core paid interns, and unpaid interns.
-- **Attendance & Campus Geofencing**: GPS-validated check-in and check-out bounded by St. Mary's Rehabilitation University campus perimeter (800m geofence), coupled with strict student attendance privacy.
-- **Leave & Work-From-Home Workflows**: Complete application, automated notifications, and administrative review for Full-day, Half-day, Work from Home (Remote Sprint), and Academic/Medical leaves.
-- **Central Office Credential Registry**: Dynamic certificate studio with official template designs (Core Paid Modern & Unpaid Classic Gold), performance threshold validation, audit-trailed reissuance, and public verification portal.
-- **Automated Communication Engine**: 16 customizable Central Office email templates with dynamic variable interpolation, live rendered HTML preview, and delivery logs.
-- **Persistent Notification Center & Approval Inbox**: Real-time cross-device notifications and centralized queue for pending leaves, task sprint reviews, and level promotions.
-- **Dual-Theme Design System**: Flash-free, persistent Dark Mode and Light Mode with high-contrast accessibility.
+- **Institutional Personnel Structure**: Strict role-based hierarchy supporting Administrators, Faculty Leads/Co-Admins, Core (Paid) Interns, and Unpaid Interns with mentor pairing.
+- **Invite-Only Onboarding**: Public self-registration is permanently disabled. Access is granted solely via cryptographically generated, single-use, 7-day expiring invite links scoped to specific roles.
+- **Robust Session & Auth Security**: RS256 JWT tokens with 15-minute lifespan paired with rotated, secure HTTP-only refresh tokens stored in Redis. Automatic account lockout after 5 consecutive failed attempts and single-use 30-minute password reset flows.
+- **Attendance & Privacy Verification**: Privacy-preserving check-in/check-out bounded by the university campus geofence (800m perimeter) with Excel exports.
+- **Central Office Credential Studio**: Verifiable certificate generation with official university seals, dynamic QR verification links, eligibility threshold checks (e.g. 75% attendance; 80% marksheet for core), and audit-trailed reissuance.
+- **Automated Communication Engine**: 10 automated notification rules backed by distributed Redis locks, idempotency keys, delivery tracking, and exponential backoff retry.
+- **Unified Calendar Integration**: One-way sync to Google Calendar via OAuth2 using plain fetch with AES-256-GCM encrypted refresh tokens, alongside private `.ics` subscription feeds for Outlook and Apple Calendar.
 
 ---
 
-## 🛠️ Architecture & Technology Stack
+## 🛠️ Technology Stack
 
-The project is structured as an npm workspaces monorepo:
-
-```
-Command center/
-├── apps/
-│   ├── api/                    # Express.js REST API & WebSocket server
-│   │   ├── assets/             # Official university seals & certificate templates
-│   │   ├── src/
-│   │   │   ├── config/         # Database, Redis, Keys, and Environment config
-│   │   │   ├── db/             # Knex migrations & seed scripts
-│   │   │   ├── middleware/     # Auth, RBAC, File Upload, and Validation
-│   │   │   └── modules/        # Auth, Attendance, Tasks, Users, Certificates, etc.
-│   │   └── tests/              # Vitest API & Business Rules test suite
-│   │
-│   └── web/                    # React 18, Vite & Tailwind CSS client
-│       ├── public/assets/      # University crest & template backgrounds
-│       ├── src/
-│       │   ├── components/     # Reusable UI primitives & AppLayout
-│       │   ├── contexts/       # Auth, Theme & Toast contexts
-│       │   ├── screens/        # Dashboard, Attendance, Tracker, Certificates, Chat, etc.
-│       │   └── tests/          # Vitest screen & component test suite
-│       └── index.html          # Early theme hydration & accessibility tags
-│
-└── packages/
-    └── shared/                 # Shared TypeScript interfaces, schemas & constants
-```
-
-### Core Technologies
-- **Frontend**: React 18, TypeScript, Vite, Tailwind CSS, TanStack React Query, Lucide Icons
-- **Backend**: Node.js, Express, TypeScript, Knex.js, SQLite, PDFKit, QRCode, Nodemailer, WebSocket (`ws`)
-- **Validation & Shared Schemas**: Zod, Shared Types Monorepo Package
-- **Testing**: Vitest across API and Web packages
+- **Backend**: Node.js + TypeScript, Express 4, PostgreSQL 16 (Knex.js), Redis 7, Zod, JWT RS256 + bcrypt (cost 12), Nodemailer, Vitest + Supertest.
+- **Frontend**: React 19 + TypeScript, Vite, Tailwind CSS 4, TanStack Query, React Router 7, custom component library (no Radix, no shadcn), Vitest + Testing Library.
+- **Allowed Extensions**: Socket.IO (Redis adapter) for live team chat, Multer for file uploads, web-push, PDFKit, QRCode, ExcelJS. Plain `fetch` for Google API integrations.
 
 ---
 
 ## 🚀 Getting Started
 
 ### Prerequisites
-- Node.js (v18.x or v20.x recommended)
-- npm (v9.x or higher)
+- Node.js (v20.x or higher)
+- npm (v10.x or higher)
+- Docker & Docker Compose (for PostgreSQL 16 and Redis 7)
 
 ### 1. Installation
-Install all dependencies across monorepo workspaces:
+Install all dependencies across the monorepo:
 ```bash
 npm install
 ```
 
 ### 2. Environment Configuration
-Copy `.env.example` to `.env` in the root or set environment variables:
+Copy `.env.example` to `.env` and set your secure seed passwords and API credentials:
 ```bash
 cp .env.example .env
 ```
+Ensure the following seed password variables are populated with strong passwords:
+- `SEED_ADMIN_PASSWORD`
+- `SEED_COADMIN_PASSWORD`
+- `SEED_CORE_PASSWORD`
+- `SEED_INTERN_PASSWORD`
 
-### 3. Database Migration & Seeding
-Run schema migrations and initialize the official roster and templates:
+### 3. Start Infrastructure (PostgreSQL & Redis)
+Launch the containerized PostgreSQL 16 and Redis 7 services:
 ```bash
+docker compose up -d
+```
+
+### 4. Database Migrations & Idempotent Seeding
+Apply database migrations and initialize the official institutional accounts:
+```bash
+npm run migrate --workspace=@command-center/api
 npm run seed --workspace=@command-center/api
 ```
 
-### 4. Running the Development Servers
-Start both backend API and frontend Vite dev servers concurrently:
+### 5. Running the Development Servers
+Start both the backend API and frontend Vite servers concurrently:
 ```bash
 npm run dev
 ```
-- **Web Application**: `http://localhost:5173`
+- **Web App**: `http://localhost:5173`
 - **Backend API**: `http://localhost:5000`
-- **Public Credential Verification**: `http://localhost:5173/verify/SH2-L2-0007`
+- **Health Check**: `http://localhost:5000/health`
+- **Public Certificate Verification**: `http://localhost:5173/verify/:certNumber`
 
 ---
 
-## 👥 Official Personnel Accounts (Default Seed)
+## 👥 Seeded Institutional Accounts
 
-| Role | Name | Email | Password |
-|---|---|---|---|
-| **Admin** | Sri Ram | `sri.ram@softwarehub2.org` | `Password123!` |
-| **Co-Admin / Lead** | Sheshi | `sheshi@softwarehub2.org` | `Password123!` |
-| **Core Intern** | Manohar | `manohar@softwarehub2.org` | `Password123!` |
-| **Core Intern** | Sri Vidhya | `sri.vidhya@softwarehub2.org` | `Password123!` |
-| **Core Intern** | Mahendar | `mahendar@softwarehub2.org` | `Password123!` |
-| **Unpaid Intern** | Cherry | `cherry@softwarehub2.org` | `Password123!` |
-| **Unpaid Intern** | Ana | `ana@softwarehub2.org` | `Password123!` |
-| **Unpaid Intern** | Nandhini | `nandhini@softwarehub2.org` | `Password123!` |
+The database seed (`apps/api/src/db/seeds/initial_seed.ts`) is idempotent and initializes only the 4 authorized central office accounts. Passwords are read strictly from environment variables at seed time and never stored in plain text. Each seeded user is initialized with `must_change_password: true`, requiring a password update upon first login.
+
+| Role | Name | Institutional Email | Environment Variable | Mentor / Pair |
+|---|---|---|---|---|
+| **Admin** | Sri Ram | `sriram@smru.edu.in` | `SEED_ADMIN_PASSWORD` | — |
+| **Co-Admin / Lead** | Sheshi | `sheshitejs@gmail.com` | `SEED_COADMIN_PASSWORD` | — |
+| **Core Intern** | Surya | `gundasurya600@gmail.com` | `SEED_CORE_PASSWORD` | — |
+| **Unpaid Intern** | Anaalia | `anaalia092@gmail.com` | `SEED_INTERN_PASSWORD` | Paired to Surya |
 
 ---
 
-## 🧪 Testing & Verification
+## 🧪 Testing & Quality Assurance
 
-Run the comprehensive unit and integration test suite:
+Run all test suites across the monorepo:
 ```bash
 npm test
 ```
-Build all monorepo workspaces for production:
+
+Build all packages and client assets for production:
 ```bash
 npm run build --workspaces
 ```
 
 ---
 
-## 🔒 Security & Privacy Practices
+## 🔒 Security Standards
 
-- **Zero Secret Leakage**: Private keys, credentials, local databases, and temporary sessions are strictly isolated via `.gitignore`.
-- **RBAC**: Multi-tier role-based access control (Admin, Lead, Paid Intern, Unpaid Intern) enforced at API middleware and router levels.
-- **Attendance Privacy**: Non-managerial accounts can only access their own attendance records.
-- **Audit Logging**: Immutable administrative audit trails for certificate reissues, message purges, promotions, and rule adjustments.
+- **Invite Only**: Public self-registration returns HTTP 403. New accounts must be invited by an Administrator, Lead, or Core Intern (scoped according to RBAC).
+- **Brute-Force Lockout**: 5 failed login attempts trigger an immediate 15-minute Redis-backed account lockout.
+- **Token Protection**: JWTs signed via RS256 with key rotation support; Google refresh tokens stored with AES-256-GCM encryption.
+- **Audit Logging**: All administrative grants, certificate issuances, role modifications, and team deletions are captured in immutable audit logs.
 
 ---
 

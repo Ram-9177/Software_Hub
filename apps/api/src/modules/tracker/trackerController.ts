@@ -1,9 +1,13 @@
 import type { Request, Response } from 'express';
 import { db } from '../../config/database.js';
 import { USER_ROLES } from '@command-center/shared';
+import { getCached, setCached } from '../../config/redis.js';
 
 export async function getTrackerMetrics(req: Request, res: Response) {
   const currentUser = req.user!;
+  const cacheKey = `dashboard:tracker:${currentUser.id}:${currentUser.role}`;
+  const cached = await getCached<any>(cacheKey);
+  if (cached) return res.json(cached);
 
   // Server-side visibility scoping:
   // Admin & Lead: See all interns
@@ -118,7 +122,7 @@ export async function getTrackerMetrics(req: Request, res: Response) {
   const reviewCandidate =
     internMetrics.find((i) => i.role === USER_ROLES.UNPAID_INTERN) || internMetrics[0] || null;
 
-  return res.json({
+  const result = {
     summary: {
       tasksDone: totalDone,
       onTimeRate: avgOnTime,
@@ -138,7 +142,10 @@ export async function getTrackerMetrics(req: Request, res: Response) {
           uploads: reviewCandidate.uploads.slice(0, 3),
         }
       : null,
-  });
+  };
+
+  await setCached(cacheKey, result, 60);
+  return res.json(result);
 }
 
 export async function submitLevelReview(req: Request, res: Response) {

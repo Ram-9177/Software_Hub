@@ -198,9 +198,14 @@ export async function getCertificates(req: Request, res: Response) {
     )
     .orderBy('c.created_at', 'desc');
 
-  // Interns see only their own certificates
-  if (currentUser.role === USER_ROLES.UNPAID_INTERN || currentUser.role === USER_ROLES.PAID_INTERN) {
+  // Role-based visibility scoping
+  if (currentUser.role === USER_ROLES.UNPAID_INTERN) {
     query = query.where('c.user_id', currentUser.id);
+  } else if (currentUser.role === USER_ROLES.PAID_INTERN) {
+    const pairedInternIds = await db('users')
+      .where({ paired_paid_intern_id: currentUser.id })
+      .pluck('id');
+    query = query.whereIn('c.user_id', [currentUser.id, ...pairedInternIds]);
   }
 
   const certificates = await query;

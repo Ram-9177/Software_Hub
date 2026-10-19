@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import {
+  register,
   login,
   microsoftSignIn,
+  googleSignIn,
   refreshToken,
   logout,
   signoutAllDevices,
@@ -10,7 +12,6 @@ import {
   getCurrentUser,
   updateProfile,
   changePassword,
-  mockSsoLogin,
 } from './authController.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
 import { validateBody } from '../../middleware/validate.js';
@@ -41,11 +42,13 @@ const resetLimiter = createRateLimiter({
 
 // Authentication routes
 router.post('/login', loginLimiter, validateBody(loginSchema), login);
+router.post('/google-signin', loginLimiter, googleSignIn);
 router.post('/microsoft-signin', loginLimiter, microsoftSignIn);
+router.post('/register', loginLimiter, register);
+router.post('/signup', loginLimiter, register);
 router.post('/refresh', refreshToken);
 router.post('/forgot-password', resetLimiter, validateBody(forgotPasswordSchema), forgotPassword);
 router.post('/reset-password', resetLimiter, validateBody(resetPasswordSchema), resetPassword);
-router.post('/mock-sso', mockSsoLogin);
 
 // Session endpoints
 router.post('/logout', logout);

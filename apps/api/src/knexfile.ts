@@ -9,13 +9,16 @@ const sqlitePath = path.resolve(__dirname, '../command_center.sqlite');
 const migrationsDir = path.resolve(__dirname, 'db/migrations');
 const seedsDir = path.resolve(__dirname, 'db/seeds');
 
+const useSqlite = ENV.USE_IN_MEMORY_DB && process.env.NODE_ENV !== 'production';
+
 const config: Record<string, Knex.Config> = {
   development: {
-    client: ENV.USE_IN_MEMORY_DB ? 'sqlite3' : 'pg',
-    connection: ENV.USE_IN_MEMORY_DB
+    client: useSqlite ? 'sqlite3' : 'pg',
+    connection: useSqlite
       ? { filename: sqlitePath }
-      : ENV.DATABASE_URL,
+      : (ENV.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/command_center'),
     useNullAsDefault: true,
+    pool: useSqlite ? undefined : { min: 2, max: 20 },
     migrations: {
       directory: migrationsDir,
       extension: 'ts',
@@ -40,13 +43,17 @@ const config: Record<string, Knex.Config> = {
   },
   production: {
     client: 'pg',
-    connection: ENV.DATABASE_URL,
+    connection: ENV.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/command_center',
     pool: {
       min: 2,
       max: 20,
     },
     migrations: {
       directory: './dist/db/migrations',
+      extension: 'js',
+    },
+    seeds: {
+      directory: './dist/db/seeds',
       extension: 'js',
     },
   },

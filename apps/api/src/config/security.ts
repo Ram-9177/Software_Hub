@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import type { Request, Response, NextFunction } from 'express';
 import { getRedisClient } from './redis.js';
+import { ENV } from './env.js';
 
 export const BCRYPT_SALT_ROUNDS = 12;
 export const LOCKOUT_THRESHOLD = 5;
@@ -36,6 +37,34 @@ export function generateRandomToken(bytes: number = 32): string {
 }
 
 /**
+ * Encrypt sensitive credentials (e.g. Google refresh tokens) with AES-256-GCM
+ */
+export function encryptToken(plainText: string): string {
+  const secretKey = crypto.createHash('sha256').update(ENV.TOKEN_ENCRYPTION_SECRET).digest();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', secretKey, iv);
+  let encrypted = cipher.update(plainText, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  const tag = cipher.getAuthTag().toString('hex');
+  return `${iv.toString('hex')}:${tag}:${encrypted}`;
+}
+
+/**
+ * Decrypt AES-256-GCM encrypted token
+ */
+export function decryptToken(cipherText: string): string {
+  const parts = cipherText.split(':');
+  if (parts.length !== 3) throw new Error('Invalid encrypted token format');
+  const [ivHex, tagHex, encryptedHex] = parts;
+  const secretKey = crypto.createHash('sha256').update(ENV.TOKEN_ENCRYPTION_SECRET).digest();
+  const decipher = crypto.createDecipheriv('aes-256-gcm', secretKey, Buffer.from(ivHex, 'hex'));
+  decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+  let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
+  decrypted += decipher.final('utf8');
+  return decrypted;
+}
+
+/**
  * Extract client IP reliably
  */
 export function getClientIp(req: Request): string {
@@ -65,8 +94,7 @@ export async function checkRateLimit(
       remaining: Math.max(0, limit - count),
     };
   } catch (err) {
-    // Fail-open for rate limiter if Redis is unresponsive
-    console.warn('[RateLimit] Error checking rate limit for key:', key, err);
+    // Fail-open for rate limiter if Redis is unresponsive in test
     return { allowed: true, remaining: limit };
   }
 }

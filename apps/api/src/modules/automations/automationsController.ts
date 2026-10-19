@@ -218,3 +218,39 @@ export async function triggerScheduledJob(req: Request, res: Response) {
 
   return res.json({ message: `Job ${jobKey} executed successfully`, emailsDispatched: count });
 }
+
+export async function sendTestEmail(req: Request, res: Response) {
+  const { recipientEmail } = req.body;
+  const targetEmail = recipientEmail || req.user?.email;
+
+  if (!targetEmail) {
+    return res.status(400).json({ message: 'Recipient email is required' });
+  }
+
+  if (!isSmtpConfigured()) {
+    return res.status(400).json({
+      message: 'SMTP is not configured in environment variables (.env). Please set SMTP_HOST, SMTP_PORT, SMTP_USER, and SMTP_PASS first.',
+    });
+  }
+
+  try {
+    const result = await sendSystemNotification({
+      ruleKey: 'welcome_email',
+      recipientEmail: targetEmail,
+      recipientName: req.user?.name || 'Administrator',
+      variables: {
+        recipient_role: 'Administrator',
+        action_url: ENV.CLIENT_ORIGIN || 'http://localhost:5173',
+      },
+    });
+
+    return res.json({
+      message: `Test email dispatched successfully to ${targetEmail}`,
+      result,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      message: `Failed to send test email: ${err.message || 'SMTP communication error'}`,
+    });
+  }
+}

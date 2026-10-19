@@ -24,7 +24,18 @@ import { USER_ROLES, INTERN_TYPES } from '@command-center/shared';
 const UNIFORM_LOGIN_ERROR = 'Email or password is incorrect';
 
 /**
+ * Public registration is disabled per specification.
+ * Accounts can only be created via single-use invite link.
+ */
+export async function register(_req: Request, res: Response) {
+  return res.status(403).json({
+    message: 'Public registration is disabled. You must be invited by an administrator or team lead.',
+  });
+}
+
+/**
  * Standard Login (Email & Password)
+ * Uniform error message, rate limited, 15-minute lock after 5 failed attempts, bcrypt cost 12
  */
 export async function login(req: Request, res: Response) {
   const { email, password } = req.body;
@@ -36,7 +47,7 @@ export async function login(req: Request, res: Response) {
   const normalizedEmail = String(email).trim().toLowerCase();
   const user = await db('users').whereRaw('LOWER(email) = ?', [normalizedEmail]).first();
 
-  // If user doesn't exist, simulate check and return uniform error
+  // If user doesn't exist, return uniform error
   if (!user) {
     return res.status(401).json({ message: UNIFORM_LOGIN_ERROR });
   }
@@ -51,7 +62,7 @@ export async function login(req: Request, res: Response) {
     });
   }
 
-  // Deactivated / Pending check
+  // Deactivated user check
   if (user.status !== 'active') {
     return res.status(401).json({ message: UNIFORM_LOGIN_ERROR });
   }
@@ -63,7 +74,6 @@ export async function login(req: Request, res: Response) {
   }
 
   if (!passwordValid) {
-    // Increment failed attempts
     const newFailedAttempts = (user.failed_login_attempts || 0) + 1;
     const updates: Record<string, any> = { failed_login_attempts: newFailedAttempts };
 
@@ -115,6 +125,7 @@ export async function login(req: Request, res: Response) {
       marksheetPercentage: user.marksheet_percentage,
       marksheetConfirmed: user.marksheet_confirmed,
       avatarUrl: user.avatar_url,
+      mustChangePassword: Boolean(user.must_change_password),
     },
     redirectUrl: '/',
   });
@@ -122,10 +133,13 @@ export async function login(req: Request, res: Response) {
 
 /**
  * Microsoft OpenID Connect SSO Sign-In:
- * Only invited emails can sign in. If uninvited, returns:
- * "You have not been invited. Ask your team lead." and creates nothing.
+ * OFF unless configured in environment variables. Only invited emails can sign in.
  */
 export async function microsoftSignIn(req: Request, res: Response) {
+  if (!ENV.MS_OIDC_CLIENT_ID) {
+    return res.status(403).json({ message: 'Microsoft Sign-In is not configured.' });
+  }
+
   const { email, microsoftId, name } = req.body;
 
   if (!email) {
@@ -134,30 +148,24 @@ export async function microsoftSignIn(req: Request, res: Response) {
 
   const normalizedEmail = String(email).trim().toLowerCase();
 
-  // 1. Check if user already exists
   let user = await db('users').whereRaw('LOWER(email) = ?', [normalizedEmail]).first();
-
-  // 2. Check if an invite exists for this email
   const invite = await db('invites')
     .whereRaw('LOWER(email) = ?', [normalizedEmail])
     .whereIn('status', ['pending', 'accepted'])
     .first();
 
-  // If neither user nor invite exists: reject and create nothing
   if (!user && !invite) {
     return res.status(403).json({
       message: 'You have not been invited. Ask your team lead.',
     });
   }
 
-  // If user exists but is deactivated
   if (user && user.status === 'inactive') {
     return res.status(403).json({
       message: 'Your account has been deactivated. Ask your team lead.',
     });
   }
 
-  // If pending invite without user: create user from invite details
   if (!user && invite) {
     const userId = `u-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     await db('users').insert({
@@ -171,6 +179,7 @@ export async function microsoftSignIn(req: Request, res: Response) {
       status: 'active',
       current_level: 1,
       token_version: 1,
+      must_change_password: false,
       created_at: new Date(),
       updated_at: new Date(),
     });
@@ -183,16 +192,9 @@ export async function microsoftSignIn(req: Request, res: Response) {
 
     user = await db('users').where({ id: userId }).first();
   } else if (user) {
-    // Link Microsoft identity if not linked or activate if pending_invite
-    const updates: Record<string, any> = {
-      updated_at: new Date(),
-    };
-    if (!user.microsoft_id && microsoftId) {
-      updates.microsoft_id = microsoftId;
-    }
-    if (user.status === 'pending_invite') {
-      updates.status = 'active';
-    }
+    const updates: Record<string, any> = { updated_at: new Date() };
+    if (!user.microsoft_id && microsoftId) updates.microsoft_id = microsoftId;
+    if (user.status === 'pending_invite') updates.status = 'active';
     await db('users').where({ id: user.id }).update(updates);
 
     if (invite && invite.status === 'pending') {
@@ -202,11 +204,9 @@ export async function microsoftSignIn(req: Request, res: Response) {
         updated_at: new Date(),
       });
     }
-
     user = await db('users').where({ id: user.id }).first();
   }
 
-  // Issue session
   const session = await createSession(
     {
       id: user.id,
@@ -229,6 +229,95 @@ export async function microsoftSignIn(req: Request, res: Response) {
       internType: user.intern_type,
       currentLevel: user.current_level,
       avatarUrl: user.avatar_url,
+      mustChangePassword: Boolean(user.must_change_password),
+    },
+    redirectUrl: '/',
+  });
+}
+
+/**
+ * Google SSO Sign-In:
+ * OFF unless GOOGLE_CLIENT_ID is set. Only invited emails can sign in.
+ */
+export async function googleSignIn(req: Request, res: Response) {
+  if (!ENV.GOOGLE_CLIENT_ID) {
+    return res.status(403).json({ message: 'Google Sign-In is not configured.' });
+  }
+
+  const { email, name } = req.body;
+  if (!email) {
+    return res.status(400).json({ message: 'Email is required for Google Sign-In' });
+  }
+
+  const normalizedEmail = String(email).trim().toLowerCase();
+
+  let user = await db('users').whereRaw('LOWER(email) = ?', [normalizedEmail]).first();
+  const invite = await db('invites')
+    .whereRaw('LOWER(email) = ?', [normalizedEmail])
+    .whereIn('status', ['pending', 'accepted'])
+    .first();
+
+  if (!user && !invite) {
+    return res.status(403).json({
+      message: 'You have not been invited. Ask your team lead.',
+    });
+  }
+
+  if (user && user.status === 'inactive') {
+    return res.status(403).json({
+      message: 'Your account has been deactivated. Ask your team lead.',
+    });
+  }
+
+  if (!user && invite) {
+    const userId = `u-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    await db('users').insert({
+      id: userId,
+      name: name || invite.name,
+      email: normalizedEmail,
+      role: invite.role,
+      intern_type: invite.intern_type,
+      team_id: invite.team_id,
+      status: 'active',
+      current_level: 1,
+      token_version: 1,
+      must_change_password: false,
+      created_at: new Date(),
+      updated_at: new Date(),
+    });
+
+    await db('invites').where({ id: invite.id }).update({
+      status: 'accepted',
+      accepted_at: new Date(),
+      updated_at: new Date(),
+    });
+
+    user = await db('users').where({ id: userId }).first();
+  }
+
+  const session = await createSession(
+    {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      tokenVersion: user.token_version || 1,
+    },
+    res,
+    { ip: getClientIp(req), userAgent: req.headers['user-agent'] }
+  );
+
+  return res.json({
+    accessToken: session.accessToken,
+    refreshToken: session.refreshToken,
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      internType: user.intern_type,
+      currentLevel: user.current_level,
+      avatarUrl: user.avatar_url,
+      mustChangePassword: Boolean(user.must_change_password),
     },
     redirectUrl: '/',
   });
@@ -330,18 +419,21 @@ export async function forgotPassword(req: Request, res: Response) {
 
     const resetLink = `${ENV.CLIENT_ORIGIN}/reset-password?token=${rawResetToken}`;
 
-    try {
-      await sendSystemNotification({
-        eventType: 'PASSWORD_RESET',
-        recipientEmail: user.email,
-        recipientName: user.name,
-        variables: {
-          reset_link: resetLink,
-        },
-      });
-    } catch (e) {
-      console.warn('[ForgotPassword] Email send error:', e);
-    }
+    // Background email dispatch
+    setImmediate(async () => {
+      try {
+        await sendSystemNotification({
+          eventType: 'PASSWORD_RESET',
+          recipientEmail: user.email,
+          recipientName: user.name,
+          variables: {
+            reset_link: resetLink,
+          },
+        });
+      } catch (e) {
+        console.warn('[ForgotPassword] Email send error:', e);
+      }
+    });
   }
 
   return res.json({ message: uniformConfirmation });
@@ -386,20 +478,18 @@ export async function resetPassword(req: Request, res: Response) {
 
   const newHash = await hashPassword(password);
 
-  // Update password and reset lockout/failed attempts
   await db('users')
     .where({ id: user.id })
     .update({
       password_hash: newHash,
+      must_change_password: false,
       failed_login_attempts: 0,
       locked_until: null,
       updated_at: new Date(),
     });
 
-  // Mark token as used
   await db('password_resets').where({ id: resetRecord.id }).update({ used: true });
 
-  // Signing out everywhere: revoke all active sessions in Redis and increment token_version
   await revokeAllSessionsForUser(user.id);
   clearRefreshTokenCookie(res);
 
@@ -409,7 +499,7 @@ export async function resetPassword(req: Request, res: Response) {
 }
 
 /**
- * Change Password (from Profile)
+ * Change Password (from Profile or first-login forced change)
  */
 export async function changePassword(req: Request, res: Response) {
   if (!req.user) {
@@ -418,8 +508,8 @@ export async function changePassword(req: Request, res: Response) {
 
   const { currentPassword, newPassword } = req.body;
 
-  if (!currentPassword || !newPassword) {
-    return res.status(400).json({ message: 'Current password and new password are required' });
+  if (!newPassword) {
+    return res.status(400).json({ message: 'New password is required' });
   }
 
   if (newPassword.length < 10) {
@@ -434,7 +524,8 @@ export async function changePassword(req: Request, res: Response) {
     return res.status(404).json({ message: 'User not found' });
   }
 
-  if (user.password_hash) {
+  // If current password provided and user has password hash, check it
+  if (currentPassword && user.password_hash) {
     const valid = await comparePassword(currentPassword, user.password_hash);
     if (!valid) {
       return res.status(400).json({ message: 'Current password is incorrect' });
@@ -446,6 +537,7 @@ export async function changePassword(req: Request, res: Response) {
     .where({ id: user.id })
     .update({
       password_hash: newHash,
+      must_change_password: false,
       updated_at: new Date(),
     });
 
@@ -493,6 +585,9 @@ export async function getCurrentUser(req: Request, res: Response) {
     avatarUrl: user.avatar_url,
     emailNotificationsMuted: Boolean(user.email_notifications_muted),
     pushNotificationsMuted: Boolean(user.push_notifications_muted),
+    mustChangePassword: Boolean(user.must_change_password),
+    hasGoogleCalendar: Boolean(user.google_refresh_token_encrypted),
+    icsToken: user.ics_token,
     createdAt: user.created_at,
   });
 }
@@ -536,66 +631,5 @@ export async function updateProfile(req: Request, res: Response) {
       emailNotificationsMuted: Boolean(updatedUser.email_notifications_muted),
       pushNotificationsMuted: Boolean(updatedUser.push_notifications_muted),
     },
-  });
-}
-
-/**
- * Mock SSO for switching personas in testing/demo
- */
-export async function mockSsoLogin(req: Request, res: Response) {
-  const { role } = req.body;
-  const targetRole = role || USER_ROLES.LEAD;
-  let user = await db('users').where({ role: targetRole, status: 'active' }).first();
-
-  if (!user && (process.env.NODE_ENV === 'test' || ENV.NODE_ENV === 'test')) {
-    const id = `u-test-${String(targetRole).replace(/[^a-zA-Z0-9]/g, '-')}`;
-    const name = `Test ${String(targetRole).replace('_', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}`;
-    const email = `${String(targetRole).toLowerCase().replace(/[^a-zA-Z0-9]/g, '')}@test.softwarehub2.org`;
-    await db('users').insert({
-      id,
-      name,
-      email,
-      role: targetRole,
-      intern_type: targetRole === USER_ROLES.PAID_INTERN ? INTERN_TYPES.PAID : targetRole === USER_ROLES.UNPAID_INTERN ? INTERN_TYPES.UNPAID : null,
-      current_level: targetRole === USER_ROLES.PAID_INTERN ? 5 : 1,
-      status: 'active',
-      token_version: 1,
-      created_at: new Date(),
-      updated_at: new Date(),
-    });
-    user = await db('users').where({ id }).first();
-  }
-
-  if (!user) {
-    return res.status(404).json({ message: `No active user found for role: ${targetRole}` });
-  }
-
-  const session = await createSession(
-    {
-      id: user.id,
-      email: user.email,
-      role: user.role,
-      tokenVersion: user.token_version || 1,
-    },
-    res,
-    { ip: getClientIp(req), userAgent: req.headers['user-agent'] }
-  );
-
-  return res.json({
-    accessToken: session.accessToken,
-    refreshToken: session.refreshToken,
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      internType: user.intern_type,
-      pairedPaidInternId: user.paired_paid_intern_id,
-      currentLevel: user.current_level,
-      marksheetPercentage: user.marksheet_percentage,
-      marksheetConfirmed: user.marksheet_confirmed,
-      avatarUrl: user.avatar_url,
-    },
-    redirectUrl: '/',
   });
 }

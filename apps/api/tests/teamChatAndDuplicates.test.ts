@@ -28,19 +28,32 @@ describe('Team Creation, Duplicate Prevention & Chat Access Control', () => {
       directory: path.resolve(process.cwd(), 'src/db/seeds'),
     });
 
-    const adminRes = await request(app).post('/api/auth/mock-sso').send({ role: 'admin' });
+    // Obtain tokens for all 4 roles via real institutional login
+    const adminRes = await request(app).post('/api/auth/login').send({
+      email: 'sriram@smru.edu.in',
+      password: process.env.SEED_ADMIN_PASSWORD || 'AdminPass123!@#',
+    });
     adminToken = adminRes.body.accessToken;
     adminUserId = adminRes.body.user.id;
 
-    const leadRes = await request(app).post('/api/auth/mock-sso').send({ role: 'lead' });
+    const leadRes = await request(app).post('/api/auth/login').send({
+      email: 'sheshitejs@gmail.com',
+      password: process.env.SEED_COADMIN_PASSWORD || 'CoadminPass123!@#',
+    });
     leadToken = leadRes.body.accessToken;
     leadUserId = leadRes.body.user.id;
 
-    const coreRes = await request(app).post('/api/auth/mock-sso').send({ role: 'paid_intern' });
+    const coreRes = await request(app).post('/api/auth/login').send({
+      email: 'gundasurya600@gmail.com',
+      password: process.env.SEED_CORE_PASSWORD || 'CorePass123!@#',
+    });
     coreToken = coreRes.body.accessToken;
     coreUserId = coreRes.body.user.id;
 
-    const unpaidRes = await request(app).post('/api/auth/mock-sso').send({ role: 'unpaid_intern' });
+    const unpaidRes = await request(app).post('/api/auth/login').send({
+      email: 'anaalia092@gmail.com',
+      password: process.env.SEED_INTERN_PASSWORD || 'InternPass123!@#',
+    });
     unpaidToken = unpaidRes.body.accessToken;
     unpaidUserId = unpaidRes.body.user.id;
 

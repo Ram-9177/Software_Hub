@@ -99,7 +99,7 @@ export async function sendSystemNotification(options: SendEmailOptions): Promise
 
   // Fallback check in email_templates if needed
   if (!automation) {
-    const tmpl = await db('email_templates').where({ event_type: options.ruleKey }).first();
+    const tmpl = await db('email_templates').where({ event_type: ruleKey }).first();
     if (tmpl) {
       if (!tmpl.is_enabled) {
         return { success: true, logId, status: 'skipped', error: 'Template is disabled' };

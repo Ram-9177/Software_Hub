@@ -184,6 +184,8 @@ export async function createInvite(req: Request, res: Response) {
 
   return res.status(201).json({
     message: 'Welcome invite dispatched successfully',
+    token: rawToken,
+    inviteLink,
     invite: {
       id: inviteId,
       name: name.trim(),
