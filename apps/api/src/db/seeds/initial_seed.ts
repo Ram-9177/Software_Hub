@@ -86,7 +86,8 @@ export async function seed(knex: Knex): Promise<void> {
 
   for (const u of seedUsers) {
     const existing = await knex('users')
-      .whereRaw('LOWER(email) = ?', [u.email.toLowerCase()])
+      .where('id', u.id)
+      .orWhereRaw('LOWER(email) = ?', [u.email.toLowerCase()])
       .first();
 
     const passwordHash = u.password ? await bcrypt.hash(u.password, BCRYPT_ROUNDS) : null;
@@ -115,15 +116,16 @@ export async function seed(knex: Knex): Promise<void> {
       });
       console.log(`[Seed] Created account: ${u.email} (${u.role})`);
     } else {
-      // Keep existing, but ensure pairing and password if provided
+      // Keep existing, but ensure email, role, pairing and password are synchronized
       const updateData: Record<string, any> = {
         name: u.name,
+        email: u.email.toLowerCase(),
         role: u.role,
         intern_type: u.internType,
         paired_paid_intern_id: u.pairedId,
         updated_at: new Date(),
       };
-      if (passwordHash && !existing.password_hash) {
+      if (passwordHash) {
         updateData.password_hash = passwordHash;
         updateData.must_change_password = true;
       }
