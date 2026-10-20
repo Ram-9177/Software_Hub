@@ -108,7 +108,9 @@ export const ChatScreen: React.FC = () => {
 
   // Permissions
   const canManageTeams =
-    currentUser?.role === USER_ROLES.ADMIN || currentUser?.role === USER_ROLES.LEAD;
+    currentUser?.role === USER_ROLES.ADMIN ||
+    currentUser?.role === USER_ROLES.MANAGER ||
+    currentUser?.role === USER_ROLES.LEAD;
 
   // 1. Fetch channels
   const { data: channels = [], isLoading: isLoadingChannels } = useQuery({
@@ -338,41 +340,55 @@ export const ChatScreen: React.FC = () => {
 
   return (
     <div className="h-[calc(100vh-6rem)] flex flex-col space-y-4 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">Chat</h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Team groups and direct messages. Share files, link tasks, and keep discussions in one place.
-          </p>
+      {/* Institutional Executive Header Banner */}
+      <div className="bg-linear-to-r from-navy-950 via-navy-900 to-navy-800 rounded-card p-5 sm:p-6 text-white shadow-card glow-navy border border-navy-700/50 relative overflow-hidden shrink-0">
+        <div className="absolute -right-10 -bottom-10 w-44 h-44 rounded-full bg-gold-400/5 blur-2xl pointer-events-none" />
+        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="w-2 h-2 rounded-full bg-gold-400 animate-pulse" />
+              <span className="text-[10px] font-mono tracking-widest uppercase text-gold-300 font-bold">
+                COMMUNICATION MATRIX · CENTRAL REGISTRY
+              </span>
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-display font-black text-white tracking-tight">
+              Operational Chat & Dispatch
+            </h1>
+            <p className="text-xs text-navy-200 mt-1 max-w-xl">
+              Real-time team coordination, unit announcements, file exchanges, and task dispatches across central divisions.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            {canManageTeams && (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  setCreateTeamError('');
+                  setIsCreateModalOpen(true);
+                }}
+                leftIcon={<Plus className="w-4 h-4" />}
+                className="bg-gold-400 hover:bg-gold-500 text-navy-950 font-bold border-gold-300"
+              >
+                Create Team Unit
+              </Button>
+            )}
+          </div>
         </div>
-
-        {canManageTeams && (
-          <Button
-            size="sm"
-            onClick={() => {
-              setCreateTeamError('');
-              setIsCreateModalOpen(true);
-            }}
-            leftIcon={<Plus className="w-4 h-4" />}
-          >
-            Create Team
-          </Button>
-        )}
       </div>
 
       {/* Main Chat Interface */}
-      <div className="flex-1 min-h-0 bg-white rounded-2xl border border-slate-200 overflow-hidden flex shadow-xs">
+      <div className="flex-1 min-h-0 bg-surface rounded-card border border-line overflow-hidden flex shadow-card">
         {/* Left Sidebar: Groups, Teams & DMs */}
-        <div className={`w-full md:w-64 border-r border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/60 flex flex-col shrink-0 ${activeChannelId ? 'hidden md:flex' : 'flex'}`}>
-          <div className="p-3 border-b border-slate-200">
+        <div className={`w-full md:w-64 border-r border-line bg-tint/40 dark:bg-navy-950/40 flex flex-col shrink-0 ${activeChannelId ? 'hidden md:flex' : 'flex'}`}>
+          <div className="p-3 border-b border-line">
             <div className="relative">
-              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-navy-400" />
               <Input
                 placeholder="Search chats"
                 value={channelSearch}
                 onChange={(e) => setChannelSearch(e.target.value)}
-                className="py-1.5 pl-8 text-xs bg-white"
+                className="py-1.5 pl-8 text-xs bg-surface border-line rounded-control text-navy-900 focus:ring-navy-500"
               />
             </div>
           </div>
@@ -381,7 +397,7 @@ export const ChatScreen: React.FC = () => {
             {/* Teams & Groups Section */}
             <div>
               <div className="flex items-center justify-between px-2 mb-1.5">
-                <span className="text-[10px] font-bold tracking-wider uppercase text-slate-400">
+                <span className="text-[10px] font-mono font-bold tracking-wider uppercase text-navy-900/60 dark:text-navy-300/60">
                   TEAMS & GROUPS
                 </span>
                 {canManageTeams && (
@@ -392,7 +408,7 @@ export const ChatScreen: React.FC = () => {
                       setIsCreateModalOpen(true);
                     }}
                     title="Create new team"
-                    className="text-slate-400 hover:text-blue-600 transition-colors"
+                    className="text-navy-400 hover:text-gold-500 transition-colors"
                   >
                     <Plus className="w-3.5 h-3.5" />
                   </button>
@@ -400,11 +416,11 @@ export const ChatScreen: React.FC = () => {
               </div>
 
               {isLoadingChannels ? (
-                <div className="px-3 py-4 text-xs text-slate-400 text-center animate-pulse">
+                <div className="px-3 py-4 text-xs text-navy-400 text-center animate-pulse">
                   Loading channels...
                 </div>
               ) : groupAndTeamChannels.length === 0 ? (
-                <div className="px-3 py-2 text-xs text-slate-400 italic">No channels found</div>
+                <div className="px-3 py-2 text-xs text-navy-400 italic">No channels found</div>
               ) : (
                 <div className="space-y-0.5">
                   {groupAndTeamChannels.map((item: any) => {
@@ -416,22 +432,22 @@ export const ChatScreen: React.FC = () => {
                         key={item.id}
                         type="button"
                         onClick={() => setActiveChannelId(item.id)}
-                        className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${
+                        className={`w-full flex items-center justify-between px-2.5 py-2 rounded-control text-xs font-medium transition-colors ${
                           isSelected
-                            ? 'bg-blue-50 text-blue-700 font-bold'
-                            : 'text-slate-700 hover:bg-slate-100'
+                            ? 'bg-tint text-navy-950 dark:bg-navy-800 dark:text-white font-bold border-l-2 border-l-gold-400'
+                            : 'text-navy-700 dark:text-navy-200 hover:bg-tint/60 dark:hover:bg-navy-800/50'
                         }`}
                       >
                         <div className="flex items-center gap-1.5 truncate">
                           {isTeam ? (
-                            <Users className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                            <Users className="w-3.5 h-3.5 text-gold-500 shrink-0" />
                           ) : (
-                            <span className="text-slate-400 shrink-0">#</span>
+                            <span className="text-navy-400 shrink-0 font-mono">#</span>
                           )}
                           <span className="truncate">{item.name}</span>
                         </div>
                         {item.unreadCount > 0 && (
-                          <span className="w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0">
+                          <span className="w-4 h-4 rounded-full bg-gold-400 text-navy-950 text-[10px] font-bold flex items-center justify-center shrink-0">
                             {item.unreadCount}
                           </span>
                         )}
@@ -445,7 +461,7 @@ export const ChatScreen: React.FC = () => {
             {/* Direct Messages Section */}
             {directChannels.length > 0 && (
               <div>
-                <span className="text-[10px] font-bold tracking-wider uppercase text-slate-400 px-2 block mb-1">
+                <span className="text-[10px] font-mono font-bold tracking-wider uppercase text-navy-900/60 dark:text-navy-300/60 px-2 block mb-1">
                   DIRECT
                 </span>
                 <div className="space-y-0.5">
@@ -454,15 +470,15 @@ export const ChatScreen: React.FC = () => {
                       key={item.id}
                       type="button"
                       onClick={() => setActiveChannelId(item.id)}
-                      className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${
+                      className={`w-full flex items-center justify-between px-2.5 py-2 rounded-control text-xs font-medium transition-colors ${
                         activeChannelId === item.id
-                          ? 'bg-blue-50 text-blue-700 font-bold'
-                          : 'text-slate-700 hover:bg-slate-100'
+                          ? 'bg-tint text-navy-950 dark:bg-navy-800 dark:text-white font-bold border-l-2 border-l-gold-400'
+                          : 'text-navy-700 dark:text-navy-200 hover:bg-tint/60 dark:hover:bg-navy-800/50'
                       }`}
                     >
                       <span className="truncate">{item.name}</span>
                       {item.unreadCount > 0 && (
-                        <span className="w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center">
+                        <span className="w-4 h-4 rounded-full bg-gold-400 text-navy-950 text-[10px] font-bold flex items-center justify-center">
                           {item.unreadCount}
                         </span>
                       )}
@@ -475,14 +491,14 @@ export const ChatScreen: React.FC = () => {
         </div>
 
         {/* Center: Conversation Stream */}
-        <div className={`flex-1 flex flex-col min-w-0 bg-white dark:bg-slate-900 ${!activeChannelId ? 'hidden md:flex' : 'flex'}`}>
+        <div className={`flex-1 flex flex-col min-w-0 bg-surface dark:bg-navy-900 ${!activeChannelId ? 'hidden md:flex' : 'flex'}`}>
           {/* Channel Header */}
-          <div className="px-4 sm:px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-900">
+          <div className="px-4 sm:px-5 py-3.5 border-b border-line flex items-center justify-between bg-surface dark:bg-navy-900">
             <div className="min-w-0 flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => setActiveChannelId('')}
-                className="md:hidden p-1.5 -ml-1 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0"
+                className="md:hidden p-1.5 -ml-1 text-navy-600 hover:text-navy-900 dark:text-navy-300 dark:hover:text-white rounded-control hover:bg-tint shrink-0"
                 title="Back to channels"
               >
                 <ArrowLeft className="w-4 h-4" />
@@ -491,26 +507,26 @@ export const ChatScreen: React.FC = () => {
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   {activeChannel?.type === 'team' ? (
-                    <Users className="w-4 h-4 text-blue-600 shrink-0" />
+                    <Users className="w-4 h-4 text-gold-500 shrink-0" />
                   ) : (
-                    <span className="text-slate-400 font-bold">#</span>
+                    <span className="text-navy-400 font-mono font-bold">#</span>
                   )}
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 leading-none truncate">
-                  {activeChannel?.name || 'General Channel'}
-                </h3>
-                {activeChannel?.type === 'team' && (
-                  <Badge variant="primary" size="sm">
-                    Team
-                  </Badge>
-                )}
+                  <h3 className="text-sm font-display font-bold text-navy-950 dark:text-white leading-none truncate">
+                    {activeChannel?.name || 'General Channel'}
+                  </h3>
+                  {activeChannel?.type === 'team' && (
+                    <Badge variant="institutional" size="sm">
+                      Team Unit
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-[11px] text-navy-600/70 dark:text-navy-300/70 mt-1 truncate">
+                  {activeChannel?.memberCount || activeChannel?.members?.length || 0} members
+                  {activeChannel?.leadName ? ` · Lead: ${activeChannel.leadName}` : ''}
+                  {activeChannel?.description ? ` · ${activeChannel.description}` : ''}
+                </p>
               </div>
-              <p className="text-[11px] text-slate-500 mt-1 truncate">
-                {activeChannel?.memberCount || activeChannel?.members?.length || 0} members
-                {activeChannel?.leadName ? ` · Lead: ${activeChannel.leadName}` : ''}
-                {activeChannel?.description ? ` · ${activeChannel.description}` : ''}
-              </p>
             </div>
-          </div>
 
           {/* Header Actions */}
             <div className="flex items-center gap-1.5 flex-wrap justify-end">
@@ -529,7 +545,7 @@ export const ChatScreen: React.FC = () => {
                   variant="outline"
                   size="sm"
                   onClick={handleRestoreLocalView}
-                  leftIcon={<RotateCcw className="w-3.5 h-3.5 text-blue-600" />}
+                  leftIcon={<RotateCcw className="w-3.5 h-3.5 text-gold-600" />}
                   title="Restore hidden messages in your local view"
                 >
                   Restore View
@@ -539,7 +555,7 @@ export const ChatScreen: React.FC = () => {
                   variant="outline"
                   size="sm"
                   onClick={() => setIsClearViewModalOpen(true)}
-                  leftIcon={<EyeOff className="w-3.5 h-3.5 text-slate-500" />}
+                  leftIcon={<EyeOff className="w-3.5 h-3.5 text-navy-500" />}
                   title="Hide prior messages from local view"
                 >
                   Clear View
@@ -551,7 +567,7 @@ export const ChatScreen: React.FC = () => {
                 variant="outline"
                 size="sm"
                 onClick={() => setIsClearSessionModalOpen(true)}
-                leftIcon={<LogOut className="w-3.5 h-3.5 text-slate-500" />}
+                leftIcon={<LogOut className="w-3.5 h-3.5 text-navy-500" />}
                 title="End session safely"
               >
                 Clear Session
@@ -575,9 +591,9 @@ export const ChatScreen: React.FC = () => {
 
           {/* Pinned Announcement Banner */}
           {activeChannel?.pinnedMessage && (
-            <div className="px-4 py-2 bg-amber-50/70 border-b border-amber-200/60 flex items-center gap-2 text-xs text-amber-900">
-              <Pin className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-              <span className="font-semibold text-amber-800">Pinned:</span>
+            <div className="px-4 py-2 bg-gold-50/80 border-b border-gold-200/80 flex items-center gap-2 text-xs text-gold-950">
+              <Pin className="w-3.5 h-3.5 text-gold-600 shrink-0" />
+              <span className="font-semibold text-gold-900 font-display">Pinned:</span>
               <span className="truncate flex-1">{activeChannel.pinnedMessage.text}</span>
             </div>
           )}
@@ -590,155 +606,175 @@ export const ChatScreen: React.FC = () => {
             return (
               <div className="flex-1 overflow-y-auto p-5 space-y-4">
                 {isLoadingMessages ? (
-                  <div className="flex items-center justify-center h-full text-slate-400 text-xs animate-pulse">
-                    Loading conversation...
+                  <div className="flex items-center justify-center h-full text-navy-400 text-xs animate-pulse">
+                    Loading conversation stream...
                   </div>
                 ) : visibleMessages.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-full text-center text-slate-400 space-y-2">
-                    <MessageSquare className="w-8 h-8 text-slate-300" />
-                    <p className="text-xs font-semibold text-slate-600">
+                  <div className="flex flex-col items-center justify-center h-full text-center text-navy-400 space-y-2">
+                    <MessageSquare className="w-8 h-8 text-navy-300" />
+                    <p className="text-xs font-display font-bold text-navy-900 dark:text-navy-100">
                       {clearedViewTimestamps[activeChannelId] ? 'Local view cleared' : 'No messages yet'}
                     </p>
-                    <p className="text-[11px]">
+                    <p className="text-[11px] text-navy-500">
                       {clearedViewTimestamps[activeChannelId]
                         ? 'Previous messages hidden on this device. Click "Restore View" above to display them again.'
-                        : 'Send a message below to start the conversation!'}
+                        : 'Send a dispatch below to initiate the unit conversation.'}
                     </p>
                   </div>
                 ) : (
                   visibleMessages.map((msg: any) => {
-                const isMe = msg.senderId === currentUser?.id;
+                    const isMe = msg.senderId === currentUser?.id;
 
-                return (
-                  <div
-                    key={msg.id}
-                    className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} max-w-xl ${
-                      isMe ? 'ml-auto' : 'mr-auto'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 mb-1 text-[11px]">
-                      <span className="font-bold text-slate-800">{msg.senderName}</span>
-                      {msg.senderRole && (
-                        <span className="text-[10px] text-slate-400 uppercase tracking-wider">
-                          ({msg.senderRole})
-                        </span>
-                      )}
-                      <span className="text-slate-400 text-[10px]">
-                        {new Date(msg.createdAt).toLocaleTimeString([], {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </span>
-                    </div>
-
-                    <div
-                      className={`p-3.5 rounded-2xl text-xs space-y-2 border ${
-                        isMe
-                          ? 'bg-blue-600 text-white border-blue-600'
-                          : 'bg-slate-100 text-slate-900 border-slate-200/60'
-                      }`}
-                    >
-                      {msg.text && <p className="leading-relaxed whitespace-pre-wrap">{msg.text}</p>}
-
-                      {/* Linked Task Card */}
-                      {msg.linkedTaskNumber && (
-                        <div
-                          className={`p-2.5 rounded-lg border flex items-center justify-between gap-3 ${
-                            isMe ? 'bg-blue-700/60 border-blue-500 text-white' : 'bg-white border-slate-200'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <Badge variant={isMe ? 'default' : 'primary'} size="sm">
-                              {msg.linkedTaskNumber}
-                            </Badge>
-                            <span className="font-bold truncate">{msg.linkedTaskTitle}</span>
-                          </div>
+                    return (
+                      <div
+                        key={msg.id}
+                        className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} max-w-xl ${
+                          isMe ? 'ml-auto' : 'mr-auto'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 mb-1 text-[11px]">
+                          <span className="font-display font-bold text-navy-950 dark:text-navy-100">{msg.senderName}</span>
+                          {msg.senderRole && (
+                            <span className="text-[10px] font-mono text-navy-400 uppercase tracking-wider">
+                              ({msg.senderRole})
+                            </span>
+                          )}
+                          <span className="text-navy-400 font-mono text-[10px]">
+                            {new Date(msg.createdAt).toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </span>
                         </div>
-                      )}
 
-                      {/* File Attachments */}
-                      {msg.attachments?.map((file: any, i: number) => (
                         <div
-                          key={i}
-                          className={`p-2.5 rounded-lg border flex items-center justify-between gap-3 ${
-                            isMe ? 'bg-blue-700/60 border-blue-500 text-white' : 'bg-white border-slate-200'
+                          className={`p-3.5 rounded-card text-xs space-y-2 border ${
+                            isMe
+                              ? 'bg-navy-900 text-white border-navy-800 shadow-xs'
+                              : 'bg-tint/80 text-navy-950 border-line shadow-xs'
                           }`}
                         >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <FileText className={`w-4 h-4 shrink-0 ${isMe ? 'text-blue-200' : 'text-blue-600'}`} />
-                            <div className="min-w-0">
-                              <span className="font-bold block truncate leading-tight">
-                                {file.fileName}
-                              </span>
-                              {file.fileSize && (
-                                <span className={`text-[10px] block ${isMe ? 'text-blue-200' : 'text-slate-400'}`}>
-                                  {(file.fileSize / (1024 * 1024)).toFixed(1)} MB
-                                </span>
-                              )}
+                          {msg.text && <p className="leading-relaxed whitespace-pre-wrap">{msg.text}</p>}
+
+                          {/* Linked Task Card */}
+                          {msg.linkedTaskNumber && (
+                            <div
+                              className={`p-2.5 rounded-control border flex items-center justify-between gap-3 ${
+                                isMe ? 'bg-navy-950/70 border-navy-700 text-white' : 'bg-surface border-line text-navy-900'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <Badge variant={isMe ? 'default' : 'institutional'} size="sm">
+                                  {msg.linkedTaskNumber}
+                                </Badge>
+                                <span className="font-bold truncate">{msg.linkedTaskTitle}</span>
+                              </div>
                             </div>
-                          </div>
-                          <a
-                            href={file.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className={`p-1 transition-colors ${
-                              isMe ? 'text-blue-100 hover:text-white' : 'text-slate-400 hover:text-blue-600'
-                            }`}
-                          >
-                            <Download className="w-4 h-4" />
-                          </a>
+                          )}
+
+                          {/* File Attachments */}
+                          {msg.attachments?.map((file: any, i: number) => {
+                            const progress = file.progress ?? file.uploadProgress;
+                            return (
+                              <div
+                                key={i}
+                                className={`p-2.5 rounded-control border ${
+                                  isMe ? 'bg-navy-950/70 border-navy-700 text-white' : 'bg-surface border-line text-navy-900'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-3">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <FileText className={`w-4 h-4 shrink-0 ${isMe ? 'text-gold-400' : 'text-navy-700'}`} />
+                                    <div className="min-w-0">
+                                      <span className="font-bold block truncate leading-tight">
+                                        {file.fileName}
+                                      </span>
+                                      {file.fileSize && (
+                                        <span className={`text-[10px] block font-mono ${isMe ? 'text-navy-300' : 'text-navy-500'}`}>
+                                          {(file.fileSize / (1024 * 1024)).toFixed(1)} MB
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  {progress !== undefined ? (
+                                    <span className={`text-xs font-bold font-mono ${isMe ? 'text-gold-400' : 'text-navy-900'}`}>
+                                      {progress}%
+                                    </span>
+                                  ) : (
+                                    <a
+                                      href={file.url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className={`p-1 transition-colors ${
+                                        isMe ? 'text-gold-300 hover:text-white' : 'text-navy-500 hover:text-navy-900'
+                                      }`}
+                                    >
+                                      <Download className="w-4 h-4" />
+                                    </a>
+                                  )}
+                                </div>
+                                {progress !== undefined && (
+                                  <div className="w-full h-1.5 bg-navy-800 rounded-full overflow-hidden mt-2">
+                                    <div
+                                      style={{ width: `${progress}%` }}
+                                      className="h-full bg-gold-400 rounded-full transition-all duration-300"
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
-                      ))}
-                    </div>
 
-                    {/* Reactions */}
-                    <div className="flex items-center gap-1.5 mt-1 text-[11px]">
-                      {msg.reactions?.map((r: any) => (
-                        <button
-                          key={r.emoji}
-                          type="button"
-                          onClick={() =>
-                            reactionMutation.mutate({ messageId: msg.id, emoji: r.emoji })
-                          }
-                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] transition-colors ${
-                            r.userReacted
-                              ? 'bg-blue-50 border-blue-300 text-blue-700 font-bold'
-                              : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                          }`}
-                        >
-                          <span>{r.emoji}</span>
-                          <span>{r.count}</span>
-                        </button>
-                      ))}
+                        {/* Reactions */}
+                        <div className="flex items-center gap-1.5 mt-1 text-[11px]">
+                          {msg.reactions?.map((r: any) => (
+                            <button
+                              key={r.emoji}
+                              type="button"
+                              onClick={() =>
+                                reactionMutation.mutate({ messageId: msg.id, emoji: r.emoji })
+                              }
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-control border text-[11px] transition-colors ${
+                                r.userReacted
+                                  ? 'bg-gold-50 border-gold-300 text-navy-950 font-bold'
+                                  : 'bg-surface border-line text-navy-700 hover:bg-tint'
+                              }`}
+                            >
+                              <span>{r.emoji}</span>
+                              <span className="font-mono text-[10px]">{r.count}</span>
+                            </button>
+                          ))}
 
-                      <button
-                        type="button"
-                        onClick={() => reactionMutation.mutate({ messageId: msg.id, emoji: '👍' })}
-                        className="text-slate-400 hover:text-slate-600 px-1"
-                        title="React with 👍"
-                      >
-                        👍
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => reactionMutation.mutate({ messageId: msg.id, emoji: '✅' })}
-                        className="text-slate-400 hover:text-slate-600 px-1"
-                        title="React with ✅"
-                      >
-                        ✅
-                      </button>
-                    </div>
-                  </div>
-                );
-              }))}
-            </div>
-          );
-        })()}
+                          <button
+                            type="button"
+                            onClick={() => reactionMutation.mutate({ messageId: msg.id, emoji: '👍' })}
+                            className="text-navy-400 hover:text-navy-700 px-1"
+                            title="React with 👍"
+                          >
+                            👍
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => reactionMutation.mutate({ messageId: msg.id, emoji: '✅' })}
+                            className="text-navy-400 hover:text-navy-700 px-1"
+                            title="React with ✅"
+                          >
+                            ✅
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            );
+          })()}
 
           {/* Message Input Bar */}
-          <div className="p-3 border-t border-slate-200 bg-slate-50/50 space-y-2">
+          <div className="p-3 border-t border-line bg-surface dark:bg-navy-900 space-y-2">
             <div className="flex items-center gap-2 text-xs">
-              <label className="inline-flex items-center gap-1 text-slate-600 hover:text-slate-900 cursor-pointer font-medium px-2 py-1 rounded-md hover:bg-slate-200/60">
+              <label className="inline-flex items-center gap-1 text-navy-700 dark:text-navy-200 hover:text-navy-950 cursor-pointer font-medium px-2 py-1 rounded-control hover:bg-tint">
                 <Paperclip className="w-3.5 h-3.5" />
                 <span>Attach file</span>
                 <input
@@ -748,7 +784,7 @@ export const ChatScreen: React.FC = () => {
                 />
               </label>
 
-              <label className="inline-flex items-center gap-1 text-slate-600 hover:text-slate-900 cursor-pointer font-medium px-2 py-1 rounded-md hover:bg-slate-200/60">
+              <label className="inline-flex items-center gap-1 text-navy-700 dark:text-navy-200 hover:text-navy-950 cursor-pointer font-medium px-2 py-1 rounded-control hover:bg-tint">
                 <Image className="w-3.5 h-3.5" />
                 <span>Photo</span>
                 <input
@@ -760,15 +796,15 @@ export const ChatScreen: React.FC = () => {
               </label>
 
               {selectedFile && (
-                <div className="flex items-center gap-1.5 text-[11px] text-blue-700 dark:text-blue-300 font-semibold bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded-md border border-blue-200 dark:border-blue-800">
-                  <span className="truncate max-w-[200px]">{selectedFile.name}</span>
+                <div className="flex items-center gap-1.5 text-[11px] text-navy-950 dark:text-navy-100 font-semibold bg-tint px-2 py-0.5 rounded-control border border-navy-200 dark:border-navy-700">
+                  <span className="truncate max-w-50">{selectedFile.name}</span>
                   {sendMutation.isPending ? (
-                    <span className="text-[10px] text-blue-600 dark:text-blue-400 font-bold animate-pulse">Uploading...</span>
+                    <span className="text-[10px] text-gold-600 font-bold animate-pulse">Uploading...</span>
                   ) : (
                     <button
                       type="button"
                       onClick={() => setSelectedFile(null)}
-                      className="text-blue-500 hover:text-rose-600 p-0.5"
+                      className="text-navy-500 hover:text-rose-600 p-0.5"
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>
@@ -780,7 +816,7 @@ export const ChatScreen: React.FC = () => {
             <div className="flex items-center gap-2">
               <input
                 type="text"
-                placeholder="Type a message, or drop files here... (Press Enter to send)"
+                placeholder="Type an operational dispatch, or attach files... (Press Enter to send)"
                 value={messageText}
                 onChange={(e) => setMessageText(e.target.value)}
                 onKeyDown={(e) => {
@@ -791,9 +827,10 @@ export const ChatScreen: React.FC = () => {
                     }
                   }
                 }}
-                className="flex-1 bg-white border border-slate-300 rounded-lg px-3.5 py-2 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex-1 bg-surface border border-line rounded-control px-3.5 py-2 text-xs text-navy-900 dark:text-navy-100 placeholder:text-navy-400 focus:outline-none focus:ring-2 focus:ring-navy-500"
               />
               <Button
+                variant="primary"
                 size="sm"
                 onClick={() => sendMutation.mutate()}
                 isLoading={sendMutation.isPending}
@@ -807,20 +844,20 @@ export const ChatScreen: React.FC = () => {
         </div>
 
         {/* Right Panel: Shared Files */}
-        <div className="w-64 border-l border-slate-200 bg-slate-50/50 p-4 shrink-0 hidden xl:flex flex-col">
-          <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-3">
-            Shared files ({sharedFiles.length})
+        <div className="w-64 border-l border-line bg-tint/30 dark:bg-navy-950/30 p-4 shrink-0 hidden xl:flex flex-col">
+          <h3 className="text-xs font-display font-bold text-navy-900 dark:text-navy-100 uppercase tracking-wider mb-3">
+            Shared Registry ({sharedFiles.length})
           </h3>
 
           {sharedFiles.length === 0 ? (
-            <div className="text-center py-8 text-xs text-slate-400">
+            <div className="text-center py-8 text-xs text-navy-400">
               No files shared yet in this conversation.
             </div>
           ) : (
             <div className="space-y-3 overflow-y-auto">
               {sharedFiles.map((f, idx) => (
                 <div key={idx} className="flex items-start gap-2.5 text-xs">
-                  <Badge variant="primary" size="sm" className="mt-0.5 uppercase">
+                  <Badge variant="institutional" size="sm" className="mt-0.5 uppercase">
                     {f.ext}
                   </Badge>
                   <div className="min-w-0 flex-1">
@@ -828,12 +865,12 @@ export const ChatScreen: React.FC = () => {
                       href={f.url}
                       target="_blank"
                       rel="noreferrer"
-                      className="font-semibold text-slate-800 truncate block leading-tight hover:text-blue-600"
+                      className="font-semibold text-navy-900 dark:text-navy-100 truncate block leading-tight hover:text-gold-600 transition-colors"
                       title={f.name}
                     >
                       {f.name}
                     </a>
-                    <span className="text-[10px] text-slate-400 block mt-0.5">
+                    <span className="text-[10px] text-navy-400 block mt-0.5 font-mono">
                       {f.sender} · {f.date} {f.size ? `· ${f.size}` : ''}
                     </span>
                   </div>
@@ -848,34 +885,34 @@ export const ChatScreen: React.FC = () => {
       <Modal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
-        title="Create New Team"
-        description="Establish a dedicated team with group chat, members, and a designated team lead."
+        title="Create Operational Team Unit"
+        description="Establish a dedicated team unit with group dispatch, members, and a designated team lead."
         maxWidth="lg"
       >
         <div className="space-y-4">
           {createTeamError && (
-            <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">
+            <div className="p-3 rounded-card bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">
               {createTeamError}
             </div>
           )}
 
           <Input
-            label="Team Name *"
+            label="Team Unit Name *"
             placeholder="e.g. Frontend Development Core"
             value={teamName}
             onChange={(e) => setTeamName(e.target.value)}
           />
 
           <Textarea
-            label="Team Description"
-            placeholder="Objectives, batch scope, or projects handled by this team..."
+            label="Mission & Scope"
+            placeholder="Objectives, batch scope, or projects handled by this unit..."
             rows={2}
             value={teamDescription}
             onChange={(e) => setTeamDescription(e.target.value)}
           />
 
           <Select
-            label="Team Lead *"
+            label="Unit Lead Authority *"
             value={teamLeadId}
             onChange={(e) => setTeamLeadId(e.target.value)}
             options={users.map((u: any) => ({
@@ -887,14 +924,14 @@ export const ChatScreen: React.FC = () => {
           {/* Members Searchable Multi-Select */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="block text-xs font-semibold text-slate-700">
-                Team Members ({selectedMemberIds.length} selected)
+              <label className="block text-xs font-semibold text-navy-900 dark:text-navy-200">
+                Unit Personnel ({selectedMemberIds.length} selected)
               </label>
               {selectedMemberIds.length > 0 && (
                 <button
                   type="button"
                   onClick={() => setSelectedMemberIds([])}
-                  className="text-[11px] text-rose-600 hover:underline"
+                  className="text-[11px] text-rose-600 hover:underline font-medium"
                 >
                   Clear all
                 </button>
@@ -902,20 +939,20 @@ export const ChatScreen: React.FC = () => {
             </div>
 
             <div className="relative mb-2">
-              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-navy-400" />
               <input
                 type="text"
                 placeholder="Search candidates by name or email..."
                 value={memberSearchTerm}
                 onChange={(e) => setMemberSearchTerm(e.target.value)}
-                className="w-full text-xs py-1.5 pl-8 pr-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full text-xs py-1.5 pl-8 pr-3 border border-line rounded-control bg-surface text-navy-900 focus:outline-none focus:ring-1 focus:ring-navy-500"
               />
             </div>
 
             {/* Member Candidates List */}
-            <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100 bg-white">
+            <div className="max-h-40 overflow-y-auto border border-line rounded-card divide-y divide-line/60 bg-surface">
               {filteredCandidateUsers.length === 0 ? (
-                <div className="p-3 text-center text-xs text-slate-400">No matching users found</div>
+                <div className="p-3 text-center text-xs text-navy-400">No matching personnel found</div>
               ) : (
                 filteredCandidateUsers.map((u: any) => {
                   const isChecked = selectedMemberIds.includes(u.id);
@@ -923,19 +960,19 @@ export const ChatScreen: React.FC = () => {
                   return (
                     <label
                       key={u.id}
-                      className="flex items-center justify-between p-2 hover:bg-slate-50 cursor-pointer text-xs"
+                      className="flex items-center justify-between p-2 hover:bg-tint cursor-pointer text-xs"
                     >
                       <div className="flex items-center gap-2">
                         <input
                           type="checkbox"
                           checked={isChecked}
                           onChange={() => toggleMemberSelection(u.id)}
-                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                          className="rounded-control border-line text-navy-900 focus:ring-navy-500"
                         />
-                        <span className="font-semibold text-slate-800">{u.name}</span>
-                        <span className="text-[10px] text-slate-400">({u.role})</span>
+                        <span className="font-semibold text-navy-900 dark:text-navy-100 font-display">{u.name}</span>
+                        <span className="text-[10px] text-navy-400 font-mono">({u.role})</span>
                       </div>
-                      <span className="text-[11px] text-slate-400">{u.email}</span>
+                      <span className="text-[11px] text-navy-500 font-mono">{u.email}</span>
                     </label>
                   );
                 })
@@ -944,7 +981,7 @@ export const ChatScreen: React.FC = () => {
           </div>
 
           {/* Action Buttons */}
-          <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-100">
+          <div className="flex justify-end gap-2.5 pt-3 border-t border-line">
             <Button
               variant="outline"
               size="sm"
@@ -954,12 +991,13 @@ export const ChatScreen: React.FC = () => {
               Cancel
             </Button>
             <Button
+              variant="primary"
               size="sm"
               isLoading={createTeamMutation.isPending}
               disabled={!teamName.trim() || !teamLeadId || createTeamMutation.isPending}
               onClick={() => createTeamMutation.mutate()}
             >
-              Create Team
+              Create Team Unit
             </Button>
           </div>
         </div>
@@ -971,8 +1009,8 @@ export const ChatScreen: React.FC = () => {
         onClose={() => setIsMembersModalOpen(false)}
         title={
           <div className="flex items-center gap-2">
-            <Users className="w-5 h-5 text-blue-600" />
-            <span>{activeChannel?.name} — Team Members</span>
+            <Users className="w-5 h-5 text-gold-500" />
+            <span className="font-display font-bold">{activeChannel?.name} — Unit Roster</span>
           </div>
         }
         description="View current conversation members and manage team roster."
@@ -981,8 +1019,8 @@ export const ChatScreen: React.FC = () => {
         <div className="space-y-4">
           {/* Add Member Row (for Admin / Lead) */}
           {canManageTeams && activeChannel?.teamId && nonMemberUsers.length > 0 && (
-            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
-              <span className="text-xs font-bold text-slate-800 block">Add New Member</span>
+            <div className="p-3 bg-tint/60 rounded-card border border-line space-y-2">
+              <span className="text-xs font-bold text-navy-900 font-display block">Induct Personnel to Unit</span>
               <div className="flex gap-2">
                 <Select
                   value={memberToAddId}
@@ -997,6 +1035,7 @@ export const ChatScreen: React.FC = () => {
                   className="text-xs py-1.5"
                 />
                 <Button
+                  variant="primary"
                   size="sm"
                   disabled={!memberToAddId || addMemberMutation.isPending}
                   isLoading={addMemberMutation.isPending}
@@ -1005,21 +1044,21 @@ export const ChatScreen: React.FC = () => {
                   }}
                   leftIcon={<UserPlus className="w-3.5 h-3.5" />}
                 >
-                  Add
+                  Induct
                 </Button>
               </div>
             </div>
           )}
 
           {/* Current Members List */}
-          <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-64 overflow-y-auto">
+          <div className="border border-line rounded-card overflow-hidden divide-y divide-line/60 max-h-64 overflow-y-auto">
             {activeChannel?.members?.map((m: any) => {
               const isLead = m.id === activeChannel?.leadId;
 
               return (
-                <div key={m.id} className="p-3 flex items-center justify-between text-xs hover:bg-slate-50/50">
+                <div key={m.id} className="p-3 flex items-center justify-between text-xs hover:bg-tint/40">
                   <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-[10px]">
+                    <div className="w-8 h-8 rounded-card bg-navy-100 text-navy-950 font-display font-bold flex items-center justify-center text-[10px] border border-line">
                       {m.name
                         ?.split(' ')
                         .map((n: string) => n[0])
@@ -1027,14 +1066,14 @@ export const ChatScreen: React.FC = () => {
                     </div>
                     <div>
                       <div className="flex items-center gap-1.5">
-                        <span className="font-bold text-slate-900">{m.name}</span>
+                        <span className="font-bold text-navy-900 dark:text-navy-100 font-display">{m.name}</span>
                         {isLead && (
                           <Badge variant="warning" size="sm">
-                            Team Lead
+                            Unit Lead
                           </Badge>
                         )}
                       </div>
-                      <span className="text-[11px] text-slate-400">{m.email}</span>
+                      <span className="text-[11px] text-navy-500 font-mono">{m.email}</span>
                     </div>
                   </div>
 
@@ -1048,7 +1087,7 @@ export const ChatScreen: React.FC = () => {
                           removeMemberMutation.mutate(m.id);
                         }
                       }}
-                      className="p-1.5 text-slate-400 hover:text-rose-600 rounded-md hover:bg-rose-50 transition-colors"
+                      className="p-1.5 text-navy-400 hover:text-rose-600 rounded-control hover:bg-rose-50 transition-colors"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -1074,14 +1113,14 @@ export const ChatScreen: React.FC = () => {
         description="Clear visible messages on this workstation without affecting other members or the database."
       >
         <div className="space-y-4">
-          <div className="p-3.5 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-xl text-xs space-y-2">
-            <div className="font-bold text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
-              <EyeOff className="w-4 h-4 text-blue-600" />
-              What this does:
+          <div className="p-3.5 bg-tint dark:bg-navy-950/40 border border-navy-200 dark:border-navy-800 rounded-card text-xs space-y-2">
+            <div className="font-bold text-navy-950 dark:text-navy-100 flex items-center gap-1.5 font-display">
+              <EyeOff className="w-4 h-4 text-gold-600" />
+              Operational Protocol Notice:
             </div>
-            <ul className="list-disc pl-5 space-y-1 text-blue-800 dark:text-blue-300">
-              <li>Hides prior messages from your screen on this device only.</li>
-              <li><strong>Does NOT delete</strong> messages from the Central Office database.</li>
+            <ul className="list-disc pl-5 space-y-1 text-navy-800 dark:text-navy-300">
+              <li>Hides prior messages from your screen on this workstation only.</li>
+              <li><strong>Does NOT delete</strong> messages from the Central Office registry database.</li>
               <li><strong>Does NOT affect</strong> other interns or leads in this channel.</li>
               <li>You can click <strong>"Restore View"</strong> in the channel header at any time.</li>
             </ul>
@@ -1091,7 +1130,7 @@ export const ChatScreen: React.FC = () => {
             <Button variant="outline" size="sm" onClick={() => setIsClearViewModalOpen(false)}>
               Cancel
             </Button>
-            <Button size="sm" onClick={handleClearLocalView}>
+            <Button variant="primary" size="sm" onClick={handleClearLocalView}>
               Clear My Local View
             </Button>
           </div>
@@ -1106,15 +1145,15 @@ export const ChatScreen: React.FC = () => {
         description="Safely end your session and clear local security tokens from this browser."
       >
         <div className="space-y-4">
-          <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl text-xs space-y-2 text-slate-700 dark:text-slate-300">
-            <div className="font-bold flex items-center gap-1.5 text-slate-900 dark:text-slate-100">
-              <LogOut className="w-4 h-4 text-slate-600" />
+          <div className="p-3.5 bg-tint dark:bg-navy-950/40 border border-line rounded-card text-xs space-y-2 text-navy-800 dark:text-navy-300">
+            <div className="font-bold flex items-center gap-1.5 text-navy-950 dark:text-white font-display">
+              <LogOut className="w-4 h-4 text-navy-700" />
               Session Security Summary:
             </div>
             <ul className="list-disc pl-5 space-y-1">
-              <li>Authentication tokens and cached permissions will be securely destroyed.</li>
-              <li>Local drafts and pending connections will be reset.</li>
-              <li>You will be redirected to the official university login portal.</li>
+              <li>Authentication credentials and active session tokens will be securely destroyed.</li>
+              <li>Local cache and pending connection streams will be reset.</li>
+              <li>You will be safely routed to the Central Office authentication portal.</li>
             </ul>
           </div>
 
@@ -1147,8 +1186,8 @@ export const ChatScreen: React.FC = () => {
         description="Permanently delete all messages and attachments from the database."
       >
         <div className="space-y-4">
-          <div className="p-3.5 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 rounded-xl text-xs space-y-2">
-            <div className="font-bold text-rose-900 dark:text-rose-200 flex items-center gap-1.5">
+          <div className="p-3.5 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 rounded-card text-xs space-y-2">
+            <div className="font-bold text-rose-900 dark:text-rose-200 flex items-center gap-1.5 font-display">
               <AlertOctagon className="w-4 h-4 text-rose-600" />
               CRITICAL WARNING — IRREVERSIBLE ACTION:
             </div>
@@ -1161,7 +1200,7 @@ export const ChatScreen: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+            <label className="block text-xs font-semibold text-navy-900 dark:text-navy-300 mb-1.5">
               To proceed, please type <span className="font-mono font-bold text-rose-600">DELETE</span> below:
             </label>
             <Input

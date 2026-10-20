@@ -22,10 +22,12 @@ describe('Team Creation, Duplicate Prevention & Chat Access Control', () => {
   beforeAll(async () => {
     // Run migrations and seeds
     await db.migrate.latest({
-      directory: path.resolve(process.cwd(), 'src/db/migrations'),
+       directory: path.resolve(process.cwd(), 'dist/db/migrations'),
+       loadExtensions: ['.js'],
     });
     await db.seed.run({
-      directory: path.resolve(process.cwd(), 'src/db/seeds'),
+       directory: path.resolve(process.cwd(), 'dist/db/seeds'),
+       loadExtensions: ['.js'],
     });
 
     // Obtain tokens for all 4 roles via real institutional login

@@ -1,11 +1,30 @@
 export const USER_ROLES = {
   ADMIN: 'admin',
+  MANAGER: 'manager',
   LEAD: 'lead',
   PAID_INTERN: 'paid_intern',
   UNPAID_INTERN: 'unpaid_intern',
 } as const;
 
 export type UserRole = (typeof USER_ROLES)[keyof typeof USER_ROLES];
+
+export const ROLE_DISPLAY_NAMES: Record<UserRole, string> = {
+  [USER_ROLES.ADMIN]: 'Super Admin',
+  [USER_ROLES.MANAGER]: 'Manager',
+  [USER_ROLES.LEAD]: 'Team Lead',
+  [USER_ROLES.PAID_INTERN]: 'Intern (Paid)',
+  [USER_ROLES.UNPAID_INTERN]: 'Intern (Unpaid)',
+};
+
+export function formatRole(role: string): string {
+  if (role === 'admin' || role === 'super_admin') return 'Super Admin';
+  if (role === 'manager') return 'Manager';
+  if (role === 'lead' || role === 'team_lead') return 'Team Lead';
+  if (role === 'paid_intern') return 'Intern (Paid)';
+  if (role === 'unpaid_intern') return 'Intern (Unpaid)';
+  if (role === 'intern') return 'Intern';
+  return role.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 export const INTERN_TYPES = {
   PAID: 'paid',

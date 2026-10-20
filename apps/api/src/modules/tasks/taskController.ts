@@ -261,7 +261,9 @@ export async function uploadPartWork(req: Request, res: Response) {
   // Server-side check: caller must be the assigned intern (or admin/lead)
   const isAssignee = part.assigned_intern_id === currentUser.id;
   const isManagement =
-    currentUser.role === USER_ROLES.ADMIN || currentUser.role === USER_ROLES.LEAD;
+    currentUser.role === USER_ROLES.ADMIN ||
+    currentUser.role === USER_ROLES.MANAGER ||
+    currentUser.role === USER_ROLES.LEAD;
 
   if (!isAssignee && !isManagement) {
     return res.status(403).json({

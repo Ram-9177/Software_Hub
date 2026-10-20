@@ -11,6 +11,7 @@ import { Textarea } from '../../components/ui/Textarea.js';
 import { Select } from '../../components/ui/Select.js';
 import { EmptyState } from '../../components/ui/EmptyState.js';
 import { useToast } from '../../components/ui/Toast.js';
+import { cn } from '../../components/ui/utils.js';
 import {
   Plus,
   Check,
@@ -287,11 +288,13 @@ export const ToDoScreen: React.FC = () => {
 
   const isReviewer =
     currentUser?.role === USER_ROLES.ADMIN ||
+    currentUser?.role === USER_ROLES.MANAGER ||
     currentUser?.role === USER_ROLES.LEAD ||
     currentUser?.role === USER_ROLES.PAID_INTERN;
 
   const canCreate =
     currentUser?.role === USER_ROLES.ADMIN ||
+    currentUser?.role === USER_ROLES.MANAGER ||
     currentUser?.role === USER_ROLES.LEAD ||
     currentUser?.role === USER_ROLES.PAID_INTERN;
 
@@ -305,19 +308,20 @@ export const ToDoScreen: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-16">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="space-y-5 max-w-7xl mx-auto pb-16">
+      {/* SMRU Institutional Executive Header Banner */}
+      <header className="min-w-0 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-card border border-line/70 bg-linear-to-r from-surface via-surface to-indigo-50/25 p-4 sm:p-5 shadow-card">
         <div>
           <div className="flex items-center gap-2">
-            <span className="p-2 rounded-xl bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">
-              <ListTodo className="w-5 h-5" />
-            </span>
-            <h1 className="text-2xl font-black text-slate-900 dark:text-slate-100 tracking-tight">
+            <h1 className="text-xl sm:text-2xl font-display font-bold text-ink tracking-tight">
               To-Do & Part Delegation
             </h1>
+            <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-accent-50 border border-accent-200/80 px-2.5 py-0.5 text-xs font-semibold text-accent-800">
+              <span className="size-1.5 rounded-full bg-accent-500 animate-pulse" />
+              Sprint Active
+            </span>
           </div>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+          <p className="mt-1 text-xs sm:text-sm text-ink-soft">
             Tasks split into deliverable parts. Marked done only when all parts are approved.
           </p>
         </div>
@@ -329,16 +333,15 @@ export const ToDoScreen: React.FC = () => {
               setCreationStep(1);
               setIsNewTaskModalOpen(true);
             }}
-            leftIcon={<Plus className="w-4 h-4" />}
-            className="min-h-[44px]"
+            leftIcon={<Plus className="size-4" />}
           >
             New Task
           </Button>
         )}
-      </div>
+      </header>
 
       {/* Status Filter Chips */}
-      <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800/60 rounded-xl w-fit">
+      <div className="flex flex-wrap items-center gap-1.5 p-1 bg-tint rounded-control border border-line w-fit">
         {[
           { key: 'all', label: 'All Parts', count: allParts.length },
           { key: 'to_do', label: 'To Do', count: partsByStatus.to_do.length },
@@ -353,14 +356,20 @@ export const ToDoScreen: React.FC = () => {
               key={f.key}
               type="button"
               onClick={() => setStatusFilter(f.key)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all min-h-[36px] flex items-center gap-1.5 ${
+              className={cn(
+                'px-3 py-1.5 rounded-control text-xs font-bold transition-all min-h-9 flex items-center gap-1.5 cursor-pointer',
                 isActive
-                  ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-300 shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
-              }`}
+                  ? 'bg-navy-800 text-white shadow-xs'
+                  : 'text-ink-soft hover:text-navy-800'
+              )}
             >
               <span>{f.label}</span>
-              <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${isActive ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-200' : 'bg-slate-200 dark:bg-slate-700 text-slate-500'}`}>
+              <span className={cn(
+                'text-[10px] px-1.5 py-0.2 rounded-full tabular-nums',
+                isActive
+                  ? 'bg-gold-400 text-navy-950 font-bold'
+                  : 'bg-surface text-ink-faint border border-line'
+              )}>
                 {f.count}
               </span>
             </button>
@@ -403,26 +412,27 @@ export const ToDoScreen: React.FC = () => {
                       setSelectedTask(part.parentTask);
                       setSelectedPart(part);
                     }}
-                    className={`p-3.5 bg-white dark:bg-slate-900 rounded-xl border cursor-pointer transition-all duration-150 hover:shadow-sm ${
+                    className={cn(
+                      'p-3.5 bg-surface rounded-control border cursor-pointer transition-all duration-150 hover:shadow-card',
                       selectedPart?.id === part.id
-                        ? 'border-blue-500 ring-2 ring-blue-500/20'
-                        : 'border-slate-200 dark:border-slate-800'
-                    }`}
+                        ? 'border-navy-600 ring-2 ring-navy-500/20'
+                        : 'border-line hover:border-line-strong'
+                    )}
                   >
                     <div className="flex items-center justify-between gap-2 mb-1.5">
-                      <Badge variant="default" size="sm">
+                      <Badge tone="neutral" size="sm">
                         {part.parentTask?.taskNumber}
                       </Badge>
-                      <span className="text-[10px] text-slate-400 font-medium">
+                      <span className="text-[10px] text-ink-faint font-medium">
                         Part {part.partNumber}/{part.totalParts}
                       </span>
                     </div>
-                    <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100 leading-snug">{part.title}</h4>
+                    <h4 className="text-xs font-bold text-ink leading-snug">{part.title}</h4>
                     <div className="flex items-center justify-between mt-2.5 text-[11px]">
-                      <span className="font-semibold text-slate-700 dark:text-slate-300 truncate max-w-[120px]">
+                      <span className="font-semibold text-ink-soft truncate max-w-30">
                         {part.assignedInternName || 'Unassigned'}
                       </span>
-                      <span className="text-slate-500 dark:text-slate-400 shrink-0">{formatDate(part.dueDate)}</span>
+                      <span className="text-ink-faint shrink-0">{formatDate(part.dueDate)}</span>
                     </div>
                   </div>
                 ))}
@@ -431,9 +441,9 @@ export const ToDoScreen: React.FC = () => {
 
             {/* Column 2: In Progress */}
             <div className="space-y-3">
-              <div className="flex items-center justify-between text-xs font-bold text-blue-700 dark:text-blue-400 px-1">
+              <div className="flex items-center justify-between text-xs font-bold text-navy-800 dark:text-gold-300 px-1">
                 <span>In progress</span>
-                <span className="text-blue-500">{partsByStatus.in_progress.length}</span>
+                <span className="text-navy-600 font-mono">{partsByStatus.in_progress.length}</span>
               </div>
               <div className="space-y-2.5">
                 {partsByStatus.in_progress.map((part) => (
@@ -443,14 +453,15 @@ export const ToDoScreen: React.FC = () => {
                       setSelectedTask(part.parentTask);
                       setSelectedPart(part);
                     }}
-                    className={`p-3.5 bg-white dark:bg-slate-900 rounded-xl border cursor-pointer transition-all duration-150 hover:shadow-sm ${
+                    className={cn(
+                      'p-3.5 bg-surface rounded-control border cursor-pointer transition-all duration-150 hover:shadow-card',
                       selectedPart?.id === part.id
-                        ? 'border-blue-500 ring-2 ring-blue-500/20'
-                        : 'border-slate-200 dark:border-slate-800'
-                    }`}
+                        ? 'border-navy-600 ring-2 ring-navy-500/20'
+                        : 'border-line hover:border-line-strong'
+                    )}
                   >
                     <div className="flex items-center justify-between gap-2 mb-1.5">
-                      <Badge variant="primary" size="sm">
+                      <Badge tone="navy" size="sm">
                         {part.parentTask?.taskNumber}
                       </Badge>
                       <span className="text-[10px] text-slate-400 font-medium">
@@ -459,7 +470,7 @@ export const ToDoScreen: React.FC = () => {
                     </div>
                     <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100 leading-snug">{part.title}</h4>
                     <div className="flex items-center justify-between mt-2.5 text-[11px]">
-                      <span className="font-semibold text-slate-700 dark:text-slate-300 truncate max-w-[120px]">
+                      <span className="font-semibold text-slate-700 dark:text-slate-300 truncate max-w-30">
                         {part.assignedInternName || 'Unassigned'}
                       </span>
                       <span className="text-slate-500 dark:text-slate-400 shrink-0">{formatDate(part.dueDate)}</span>
@@ -499,7 +510,7 @@ export const ToDoScreen: React.FC = () => {
                     </div>
                     <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100 leading-snug">{part.title}</h4>
                     <div className="flex items-center justify-between mt-2.5 text-[11px]">
-                      <span className="font-semibold text-slate-700 dark:text-slate-300 truncate max-w-[120px]">
+                      <span className="font-semibold text-slate-700 dark:text-slate-300 truncate max-w-30">
                         {part.assignedInternName}
                       </span>
                       <span className="text-purple-600 font-bold shrink-0">Proof Submitted</span>
@@ -539,7 +550,7 @@ export const ToDoScreen: React.FC = () => {
                     </div>
                     <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100 leading-snug">{part.title}</h4>
                     <div className="flex items-center justify-between mt-2.5 text-[11px]">
-                      <span className="font-semibold text-slate-700 dark:text-slate-300 truncate max-w-[120px]">
+                      <span className="font-semibold text-slate-700 dark:text-slate-300 truncate max-w-30">
                         {part.assignedInternName}
                       </span>
                       <span className="text-rose-600 font-bold shrink-0">{formatDate(part.dueDate)}</span>
@@ -570,7 +581,7 @@ export const ToDoScreen: React.FC = () => {
                         </span>
                       )}
                     </div>
-                    <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100 line-through text-slate-500 leading-snug">
+                    <h4 className="text-xs font-display font-medium text-navy-400 dark:text-navy-400 line-through leading-snug">
                       {part.title}
                     </h4>
                     <div className="flex items-center justify-between mt-2 text-[11px]">
@@ -585,33 +596,33 @@ export const ToDoScreen: React.FC = () => {
 
           {/* Selected Task & Part Deep Dive */}
           {selectedTask && (
-            <Card padding="lg" className="border-t-4 border-t-blue-600">
-              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
+            <Card padding="lg" className="border-t-3 border-t-navy-800">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-line pb-4">
                 <div>
                   <div className="flex items-center gap-2 mb-1">
-                    <Badge variant="primary" size="sm">
+                    <Badge tone="navy" size="sm">
                       {selectedTask.taskNumber}
                     </Badge>
-                    <Badge variant={selectedTask.priority === 'high' ? 'danger' : 'default'} size="sm">
+                    <Badge tone={selectedTask.priority === 'high' ? 'danger' : 'neutral'} size="sm">
                       {selectedTask.priority?.toUpperCase()} PRIORITY
                     </Badge>
                   </div>
-                  <h2 className="text-lg font-black text-slate-900 dark:text-slate-100">
+                  <h2 className="text-lg font-display font-bold text-ink">
                     {selectedTask.title}
                   </h2>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-2xl">
+                  <p className="text-xs text-ink-soft mt-1 max-w-2xl">
                     {selectedTask.description || 'No description provided.'}
                   </p>
                 </div>
 
                 <div className="flex items-center gap-3 shrink-0">
                   <div className="text-right">
-                    <span className="text-[10px] text-slate-400 font-semibold uppercase block">Target Due Date</span>
-                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                    <span className="text-[10px] text-ink-faint font-semibold uppercase block">Target Due Date</span>
+                    <span className="text-xs font-bold text-ink">
                       {formatDate(selectedTask.dueDate)}
                     </span>
                   </div>
-                  <Badge variant={selectedTask.status === 'done' ? 'success' : 'default'} size="md">
+                  <Badge tone={selectedTask.status === 'done' ? 'success' : 'neutral'} size="md">
                     {selectedTask.status === 'done' ? 'All Parts Complete' : 'In Progress'}
                   </Badge>
                 </div>
@@ -621,7 +632,7 @@ export const ToDoScreen: React.FC = () => {
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-6">
                 {/* Left: Chain of Parts */}
                 <div className="lg:col-span-7 space-y-3">
-                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                  <h3 className="text-xs font-bold text-ink-faint uppercase tracking-wider">
                     Task Parts Breakdown ({selectedTask.parts?.length || 0})
                   </h3>
 
@@ -630,11 +641,12 @@ export const ToDoScreen: React.FC = () => {
                       <div
                         key={part.id}
                         onClick={() => setSelectedPart(part)}
-                        className={`p-3.5 rounded-xl border flex items-center justify-between cursor-pointer transition-colors ${
+                        className={cn(
+                          'p-3.5 rounded-control border flex items-center justify-between cursor-pointer transition-colors',
                           selectedPart?.id === part.id
-                            ? 'bg-blue-50/70 dark:bg-blue-950/30 border-blue-400 dark:border-blue-700 ring-1 ring-blue-400'
-                            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50'
-                        }`}
+                            ? 'bg-tint border-navy-400 ring-1 ring-navy-400'
+                            : 'bg-surface border-line hover:bg-canvas'
+                        )}
                       >
                         <div>
                           <div className="flex items-center gap-2 mb-0.5">
@@ -726,11 +738,11 @@ export const ToDoScreen: React.FC = () => {
                             {selectedPart.uploads.map((up: any) => (
                               <div
                                 key={up.id}
-                                className="p-2.5 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs"
+                                className="p-2.5 bg-surface dark:bg-navy-900 rounded-control border border-line flex items-center justify-between text-xs"
                               >
                                 <div className="flex items-center gap-2 min-w-0">
-                                  <FileText className="w-4 h-4 text-blue-600 shrink-0" />
-                                  <span className="truncate font-medium text-slate-800 dark:text-slate-200">
+                                  <FileText className="w-4 h-4 text-gold-500 shrink-0" />
+                                  <span className="truncate font-medium text-navy-900 dark:text-navy-100">
                                     {up.fileName || up.urlOrPath}
                                   </span>
                                 </div>
@@ -738,9 +750,9 @@ export const ToDoScreen: React.FC = () => {
                                   href={up.urlOrPath}
                                   target="_blank"
                                   rel="noreferrer"
-                                  className="text-blue-600 hover:text-blue-700 p-1 flex items-center gap-1 font-semibold text-[11px]"
+                                  className="text-navy-900 dark:text-navy-200 hover:text-gold-600 p-1 flex items-center gap-1 font-semibold text-[11px] transition-colors"
                                 >
-                                  Open <ExternalLink className="w-3 h-3" />
+                                  Open <ExternalLink className="w-3 h-3 text-gold-500" />
                                 </a>
                               </div>
                             ))}
@@ -758,40 +770,43 @@ export const ToDoScreen: React.FC = () => {
                         </div>
 
                         {/* Upload Method Tabs */}
-                        <div className="grid grid-cols-3 gap-1 bg-slate-200/60 dark:bg-slate-700/60 p-1 rounded-lg text-xs font-semibold">
+                        <div className="grid grid-cols-3 gap-1 bg-tint p-1 rounded-control text-xs font-semibold border border-line">
                           <button
                             type="button"
                             onClick={() => setUploadTab('file')}
-                            className={`py-1 rounded-md transition-colors ${
-                              uploadTab === 'file' ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs' : 'text-slate-600 dark:text-slate-400'
-                            }`}
+                            className={cn(
+                              'py-1 rounded-control transition-colors cursor-pointer',
+                              uploadTab === 'file' ? 'bg-navy-800 text-white shadow-xs font-bold' : 'text-ink-soft hover:text-navy-800'
+                            )}
                           >
                             File Upload
                           </button>
                           <button
                             type="button"
                             onClick={() => setUploadTab('git')}
-                            className={`py-1 rounded-md transition-colors ${
-                              uploadTab === 'git' ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs' : 'text-slate-600 dark:text-slate-400'
-                            }`}
+                            className={cn(
+                              'py-1 rounded-control transition-colors cursor-pointer',
+                              uploadTab === 'git' ? 'bg-navy-800 text-white shadow-xs font-bold' : 'text-ink-soft hover:text-navy-800'
+                            )}
                           >
                             Git Repo
                           </button>
                           <button
                             type="button"
                             onClick={() => setUploadTab('doc')}
-                            className={`py-1 rounded-md transition-colors ${
-                              uploadTab === 'doc' ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs' : 'text-slate-600 dark:text-slate-400'
-                            }`}
+                            className={cn(
+                              'py-1 rounded-control transition-colors cursor-pointer',
+                              uploadTab === 'doc' ? 'bg-navy-800 text-white shadow-xs font-bold' : 'text-ink-soft hover:text-navy-800'
+                            )}
                           >
                             Documentation
                           </button>
                         </div>
 
                         {uploadTab === 'file' && (
-                          <div className="border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl p-4 text-center bg-white dark:bg-slate-900">
-                            <UploadCloud className="w-6 h-6 text-slate-400 mx-auto mb-1.5" />
-                            <label className="text-xs text-blue-600 font-semibold cursor-pointer hover:underline block">
+                          <div className="border-2 border-dashed border-line rounded-card p-4 text-center bg-surface">
+                            <UploadCloud className="size-6 text-ink-faint mx-auto mb-1.5" />
+                            <label className="text-xs text-navy-800 font-semibold cursor-pointer hover:underline block">
                               <span>Choose file to upload</span>
                               <input
                                 type="file"
@@ -837,7 +852,7 @@ export const ToDoScreen: React.FC = () => {
                             (uploadTab === 'doc' && !docLink.trim())
                           }
                           onClick={() => uploadMutation.mutate()}
-                          className="w-full min-h-[44px]"
+                          className="w-full min-h-11"
                         >
                           Submit Part for Review
                         </Button>
@@ -873,22 +888,24 @@ export const ToDoScreen: React.FC = () => {
             ].map((s) => (
               <div
                 key={s.num}
-                className={`flex items-center gap-2 text-xs font-bold ${
+                className={cn(
+                  'flex items-center gap-2 text-xs font-bold',
                   creationStep === s.num
-                    ? 'text-blue-600 dark:text-blue-400'
+                    ? 'text-navy-800 dark:text-gold-300'
                     : creationStep > s.num
-                    ? 'text-emerald-600 dark:text-emerald-400'
-                    : 'text-slate-400'
-                }`}
+                    ? 'text-accent-600'
+                    : 'text-ink-faint'
+                )}
               >
                 <span
-                  className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${
+                  className={cn(
+                    'size-6 rounded-control flex items-center justify-center text-xs',
                     creationStep === s.num
-                      ? 'bg-blue-600 text-white'
+                      ? 'bg-navy-800 text-white font-bold'
                       : creationStep > s.num
-                      ? 'bg-emerald-600 text-white'
-                      : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
-                  }`}
+                      ? 'bg-accent-600 text-white'
+                      : 'bg-canvas text-ink-faint border border-line'
+                  )}
                 >
                   {creationStep > s.num ? '✓' : s.num}
                 </span>
@@ -906,7 +923,7 @@ export const ToDoScreen: React.FC = () => {
                 value={newTaskTitle}
                 onChange={(e) => setNewTaskTitle(e.target.value)}
                 required
-                className="min-h-[44px]"
+                className="min-h-11"
               />
 
               <Textarea
@@ -980,14 +997,14 @@ export const ToDoScreen: React.FC = () => {
                           updated[index].title = e.target.value;
                           setNewTaskParts(updated);
                         }}
-                        className="flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-2 px-3 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="flex-1 bg-surface border border-line rounded-control py-2 px-3 text-xs text-navy-900 dark:text-navy-100 placeholder:text-navy-400 focus:outline-none focus:ring-2 focus:ring-navy-500"
                       />
 
                       {newTaskParts.length > 1 && (
                         <button
                           type="button"
                           onClick={() => setNewTaskParts(newTaskParts.filter((_, i) => i !== index))}
-                          className="text-slate-400 hover:text-rose-600 p-1.5"
+                          className="text-navy-400 hover:text-rose-600 p-1.5 transition-colors"
                           title="Remove part"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -1017,7 +1034,7 @@ export const ToDoScreen: React.FC = () => {
                           updated[index].dueDate = e.target.value;
                           setNewTaskParts(updated);
                         }}
-                        className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-2 px-3 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="bg-surface border border-line rounded-control py-2 px-3 text-xs text-navy-900 dark:text-navy-100 focus:outline-none focus:ring-2 focus:ring-navy-500"
                       />
                     </div>
                   </div>
@@ -1049,9 +1066,9 @@ export const ToDoScreen: React.FC = () => {
                 </label>
                 <div className="grid grid-cols-3 gap-3">
                   {[
-                    { value: TASK_PRIORITIES.LOW, label: 'Low', color: 'border-slate-300 text-slate-700 dark:text-slate-300' },
-                    { value: TASK_PRIORITIES.MEDIUM, label: 'Medium', color: 'border-blue-400 text-blue-700 dark:text-blue-300' },
-                    { value: TASK_PRIORITIES.HIGH, label: 'High', color: 'border-rose-400 text-rose-700 dark:text-rose-300' },
+                    { value: TASK_PRIORITIES.LOW, label: 'Low', color: 'border-line text-ink-soft' },
+                    { value: TASK_PRIORITIES.MEDIUM, label: 'Medium', color: 'border-navy-200 text-navy-800 bg-navy-50' },
+                    { value: TASK_PRIORITIES.HIGH, label: 'High', color: 'border-danger-200 text-danger-700 bg-danger-50' },
                   ].map((chip) => {
                     const isSelected = newTaskPriority === chip.value;
                     return (
@@ -1059,11 +1076,12 @@ export const ToDoScreen: React.FC = () => {
                         key={chip.value}
                         type="button"
                         onClick={() => setNewTaskPriority(chip.value as TaskPriority)}
-                        className={`py-3 px-4 rounded-xl border text-xs font-bold transition-all min-h-[44px] ${
+                        className={cn(
+                          'py-3 px-4 rounded-control border text-xs font-bold transition-all min-h-11 cursor-pointer',
                           isSelected
-                            ? 'bg-blue-600 text-white border-blue-600 shadow-sm ring-2 ring-blue-500/30'
-                            : `bg-white dark:bg-slate-900 ${chip.color} hover:bg-slate-50 dark:hover:bg-slate-800`
-                        }`}
+                            ? 'bg-navy-800 text-white border-navy-800 shadow-sm ring-2 ring-navy-500/30'
+                            : `bg-surface ${chip.color} hover:bg-tint`
+                        )}
                       >
                         {chip.label}
                       </button>
@@ -1073,18 +1091,18 @@ export const ToDoScreen: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                <label className="block text-xs font-semibold text-ink mb-1.5">
                   Final Task Due Date *
                 </label>
                 <input
                   type="date"
                   value={newTaskDueDate}
                   onChange={(e) => setNewTaskDueDate(e.target.value)}
-                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 py-2.5 px-3 text-xs bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px]"
+                  className="w-full rounded-control border border-line py-2.5 px-3 text-xs bg-surface text-ink focus:outline-none focus:ring-2 focus:ring-navy-500 min-h-11"
                 />
               </div>
 
-              <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-xs text-blue-800 dark:text-blue-300">
+              <div className="p-3 rounded-card bg-tint text-xs text-navy-800 border border-navy-200/60">
                 <strong>Review Summary:</strong> Task "{newTaskTitle}" with {newTaskParts.length} delegated part(s). All interns assigned will be automatically notified upon creation.
               </div>
 
@@ -1146,7 +1164,7 @@ export const ToDoScreen: React.FC = () => {
               type="date"
               value={reassignDueDate}
               onChange={(e) => setReassignDueDate(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 dark:border-slate-700 py-2 px-3 text-xs bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px]"
+              className="w-full rounded-control border border-line py-2 px-3 text-xs bg-surface text-ink focus:outline-none focus:ring-2 focus:ring-navy-500 min-h-11"
             />
           </div>
 

@@ -69,25 +69,32 @@ export async function exportTrackerExcel(_req: Request, res: Response) {
     fgColor: { argb: 'FF1E293B' },
   };
 
-  const sampleStats: Record<string, any> = {
-    'Meera S.': { done: 12, onTime: '92%', overdue: 0, rating: 4.8 },
-    'Nikhil P.': { done: 9, onTime: '78%', overdue: 1, rating: 4.2 },
-    'Riya K.': { done: 8, onTime: '88%', overdue: 0, rating: 4.7 },
-    'Karthik V.': { done: 5, onTime: '80%', overdue: 1, rating: 4.3 },
-    'Divya M.': { done: 4, onTime: '100%', overdue: 0, rating: 4.9 },
-    'Arjun T.': { done: 14, onTime: '91%', overdue: 0, rating: 4.8 },
-  };
-
+  const now = new Date();
   for (const i of interns) {
-    const s = sampleStats[i.name] || { done: 4, onTime: '85%', overdue: 0, rating: 4.5 };
+    const parts = await db('task_parts').where({ assigned_intern_id: i.id });
+    const doneCount = parts.filter((p) => p.status === 'done').length;
+    const overdueCount = parts.filter(
+      (p) => p.status === 'overdue' || (p.status !== 'done' && now > new Date(p.due_date))
+    ).length;
+    const onTimeRate =
+      parts.length > 0
+        ? `${Math.max(0, Math.round(((parts.length - overdueCount) / parts.length) * 100))}%`
+        : '100%';
+
+    const ratedParts = parts.filter((p) => p.rating !== null && p.rating !== undefined);
+    const avgRating =
+      ratedParts.length > 0
+        ? Number((ratedParts.reduce((acc, curr) => acc + Number(curr.rating), 0) / ratedParts.length).toFixed(1))
+        : (i.intern_type === 'paid' ? 5.0 : 4.5);
+
     worksheet.addRow({
       name: i.name,
       type: i.intern_type === 'paid' ? 'Core (Paid)' : 'Unpaid',
-      level: i.current_level,
-      done: s.done,
-      onTime: s.onTime,
-      overdue: s.overdue,
-      rating: s.rating,
+      level: i.current_level || 1,
+      done: doneCount,
+      onTime: onTimeRate,
+      overdue: overdueCount,
+      rating: avgRating,
     });
   }
 

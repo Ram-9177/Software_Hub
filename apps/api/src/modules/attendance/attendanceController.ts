@@ -2,6 +2,8 @@ import type { Request, Response } from 'express';
 import { db } from '../../config/database.js';
 import { ATTENDANCE_STATUSES, USER_ROLES } from '@command-center/shared';
 import { logAdminAction } from '../users/userController.js';
+import { sendSystemNotification } from '../automations/emailService.js';
+import { ENV } from '../../config/env.js';
 
 function getTodayDateString(): string {
   const now = new Date();
@@ -14,7 +16,10 @@ function getTodayDateString(): string {
 export async function getTodayAttendance(req: Request, res: Response) {
   const currentUser = req.user!;
   const today = getTodayDateString();
-  const isManagement = currentUser.role === USER_ROLES.ADMIN || currentUser.role === USER_ROLES.LEAD;
+  const isManagement =
+    currentUser.role === USER_ROLES.ADMIN ||
+    currentUser.role === USER_ROLES.MANAGER ||
+    currentUser.role === USER_ROLES.LEAD;
 
   if (!isManagement) {
     // Individual intern: strict privacy — sees only own record
@@ -81,7 +86,10 @@ export async function getTodayAttendance(req: Request, res: Response) {
 export async function getRegister(req: Request, res: Response) {
   const currentUser = req.user!;
   const targetUserId = (req.query.userId as string) || currentUser.id;
-  const isManagement = currentUser.role === USER_ROLES.ADMIN || currentUser.role === USER_ROLES.LEAD;
+  const isManagement =
+    currentUser.role === USER_ROLES.ADMIN ||
+    currentUser.role === USER_ROLES.MANAGER ||
+    currentUser.role === USER_ROLES.LEAD;
 
   if (!isManagement && targetUserId !== currentUser.id) {
     return res.status(403).json({
@@ -165,6 +173,24 @@ export async function checkIn(req: Request, res: Response) {
       date: today,
       ...recordPayload,
     });
+  }
+
+  // Attendance Check-in Confirmed Email Automation
+  if (currentUser.email) {
+    sendSystemNotification({
+      ruleKey: 'attendance_checkin',
+      recipientEmail: currentUser.email,
+      recipientName: currentUser.name,
+      recipientUserId: currentUser.id,
+      idempotencyKey: `checkin:${currentUser.id}:${today}`,
+      variables: {
+        recipient_name: currentUser.name,
+        checkin_time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        date: today,
+        attendance_status: status === ATTENDANCE_STATUSES.PRESENT ? 'Present (On Time)' : status === ATTENDANCE_STATUSES.LATE ? 'Late Check-in' : status,
+        action_url: `${ENV.CLIENT_ORIGIN || 'http://localhost:5173'}/attendance`,
+      },
+    }).catch((err) => console.warn('[AttendanceEmail] Error dispatching check-in email:', err));
   }
 
   return res.json({
@@ -302,12 +328,34 @@ export async function requestLeave(req: Request, res: Response) {
     updated_at: new Date(),
   });
 
+  // Leave Request Submitted Email Automation
+  if (currentUser.email) {
+    sendSystemNotification({
+      ruleKey: 'leave_requested',
+      recipientEmail: currentUser.email,
+      recipientName: currentUser.name,
+      recipientUserId: currentUser.id,
+      idempotencyKey: `leave_req:${leaveId}`,
+      variables: {
+        recipient_name: currentUser.name,
+        start_date: startDate,
+        end_date: endDate,
+        leave_reason: reason,
+        leave_category: leaveCategory,
+        action_url: `${ENV.CLIENT_ORIGIN || 'http://localhost:5173'}/attendance`,
+      },
+    }).catch((err) => console.warn('[LeaveEmail] Error dispatching leave request email:', err));
+  }
+
   return res.status(201).json({ message: 'Leave request submitted successfully', id: leaveId });
 }
 
 export async function getLeaveRequests(req: Request, res: Response) {
   const currentUser = req.user!;
-  const isManagement = currentUser.role === USER_ROLES.ADMIN || currentUser.role === USER_ROLES.LEAD;
+  const isManagement =
+    currentUser.role === USER_ROLES.ADMIN ||
+    currentUser.role === USER_ROLES.MANAGER ||
+    currentUser.role === USER_ROLES.LEAD;
 
   let query = db('leave_requests as lr')
     .join('users as u', 'lr.user_id', 'u.id')
@@ -339,7 +387,11 @@ export async function reviewLeaveRequest(req: Request, res: Response) {
   const { id } = req.params;
   const { action, comment } = req.body;
 
-  if (currentUser.role !== USER_ROLES.ADMIN && currentUser.role !== USER_ROLES.LEAD) {
+  if (
+    currentUser.role !== USER_ROLES.ADMIN &&
+    currentUser.role !== USER_ROLES.MANAGER &&
+    currentUser.role !== USER_ROLES.LEAD
+  ) {
     return res.status(403).json({ message: 'Only Admin and Co-Admin can review leave requests.' });
   }
 
@@ -352,5 +404,112 @@ export async function reviewLeaveRequest(req: Request, res: Response) {
     updated_at: new Date(),
   });
 
+  // Sync approved leave dates into attendance table so register accurately reflects official leave
+  if (action === 'approve') {
+    const leaveRec = await db('leave_requests').where({ id }).first();
+    if (leaveRec) {
+      const cur = new Date(leaveRec.start_date);
+      const end = new Date(leaveRec.end_date);
+      while (cur <= end) {
+        const dStr = cur.toISOString().split('T')[0];
+        const existingAtt = await db('attendance').where({ user_id: leaveRec.user_id, date: dStr }).first();
+        if (existingAtt) {
+          await db('attendance').where({ id: existingAtt.id }).update({ status: 'leave', updated_at: new Date() });
+        } else {
+          await db('attendance').insert({
+            id: `att-leave-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            user_id: leaveRec.user_id,
+            date: dStr,
+            status: 'leave',
+            created_at: new Date(),
+            updated_at: new Date(),
+          });
+        }
+        cur.setDate(cur.getDate() + 1);
+      }
+    }
+  }
+
+  // Leave Request Decision Email Automation
+  const leave = await db('leave_requests as lr')
+    .join('users as u', 'lr.user_id', 'u.id')
+    .where('lr.id', id)
+    .select('lr.*', 'u.email as userEmail', 'u.name as userName')
+    .first();
+
+  if (leave?.userEmail) {
+    sendSystemNotification({
+      ruleKey: 'leave_reviewed',
+      recipientEmail: leave.userEmail,
+      recipientName: leave.userName,
+      recipientUserId: leave.user_id,
+      idempotencyKey: `leave_rev:${id}:${Date.now()}`,
+      variables: {
+        recipient_name: leave.userName,
+        decision_status: status.toUpperCase(),
+        start_date: leave.start_date,
+        end_date: leave.end_date,
+        reviewer_name: currentUser.name,
+        reviewer_comment: comment || (status === 'approved' ? 'Leave request approved.' : 'Leave request declined.'),
+        action_url: `${ENV.CLIENT_ORIGIN || 'http://localhost:5173'}/attendance`,
+      },
+    }).catch((err) => console.warn('[LeaveReviewEmail] Error dispatching leave review email:', err));
+  }
+
   return res.json({ message: `Leave request ${status} successfully` });
 }
+
+// ----------------------------------------------------------------------
+// 8. ATTENDANCE STATS & 8-WEEK TREND (Live calculated from database)
+// ----------------------------------------------------------------------
+export async function getAttendanceStats(req: Request, res: Response) {
+  const currentUser = req.user!;
+  const isManagement =
+    currentUser.role === USER_ROLES.ADMIN ||
+    currentUser.role === USER_ROLES.MANAGER ||
+    currentUser.role === USER_ROLES.LEAD;
+
+  let recordsQuery = db('attendance');
+  if (!isManagement) {
+    recordsQuery = recordsQuery.where({ user_id: currentUser.id });
+  }
+
+  const allRecords = await recordsQuery;
+  const total = allRecords.length;
+  const present = allRecords.filter(
+    (r) => r.status === ATTENDANCE_STATUSES.PRESENT || r.status === ATTENDANCE_STATUSES.LATE
+  ).length;
+  const halfDays = allRecords.filter((r) => r.status === ATTENDANCE_STATUSES.HALF_DAY).length;
+  const averageAttendancePct = total > 0 ? Math.round(((present + halfDays * 0.5) / total) * 100) : 0;
+
+  // Real weekly trend for the last 8 weeks
+  const now = new Date();
+  const weeklyTrend: Array<{ week: string; percentage: number }> = [];
+
+  for (let i = 7; i >= 0; i--) {
+    const weekStart = new Date(now.getTime() - (i + 1) * 7 * 86400000);
+    const weekEnd = new Date(now.getTime() - i * 7 * 86400000);
+    const startStr = weekStart.toISOString().split('T')[0];
+    const endStr = weekEnd.toISOString().split('T')[0];
+
+    const weekRecords = allRecords.filter((r) => r.date >= startStr && r.date <= endStr);
+    const wTotal = weekRecords.length;
+    const wPresent = weekRecords.filter(
+      (r) => r.status === ATTENDANCE_STATUSES.PRESENT || r.status === ATTENDANCE_STATUSES.LATE
+    ).length;
+    const wHalf = weekRecords.filter((r) => r.status === ATTENDANCE_STATUSES.HALF_DAY).length;
+    const pct = wTotal > 0 ? Math.round(((wPresent + wHalf * 0.5) / wTotal) * 100) : averageAttendancePct;
+
+    weeklyTrend.push({
+      week: `W${8 - i}`,
+      percentage: pct,
+    });
+  }
+
+  return res.json({
+    averageAttendancePct,
+    weeklyTrend,
+    totalRecords: total,
+  });
+}
+

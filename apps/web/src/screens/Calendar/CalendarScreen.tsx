@@ -8,6 +8,7 @@ import { Modal } from '../../components/ui/Modal.js';
 import { Input } from '../../components/ui/Input.js';
 import { Select } from '../../components/ui/Select.js';
 import { useToast } from '../../components/ui/Toast.js';
+import { cn } from '../../components/ui/utils.js';
 import { Plus, Calendar as CalendarIcon, Clock, Users, RefreshCw, CheckCircle, ExternalLink, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 
 export const CalendarScreen: React.FC = () => {
@@ -178,26 +179,33 @@ export const CalendarScreen: React.FC = () => {
   }, [filteredEvents]);
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="space-y-5 max-w-7xl mx-auto pb-16">
+      {/* SMRU Institutional Executive Header Banner */}
+      <header className="min-w-0 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-card border border-line/70 bg-linear-to-r from-surface via-surface to-indigo-50/25 p-4 sm:p-5 shadow-card">
         <div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">University Calendar</h1>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl sm:text-2xl font-display font-bold text-ink tracking-tight">University Calendar</h1>
+            <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-accent-50 border border-accent-200/80 px-2.5 py-0.5 text-xs font-semibold text-accent-800">
+              <span className="size-1.5 rounded-full bg-accent-500 animate-pulse" />
+              Live Sync
+            </span>
+          </div>
+          <p className="mt-1 text-xs sm:text-sm text-ink-soft">
             Meetings, VC reviews, holidays, and task deadlines synchronized in real time.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="inline-flex p-1 bg-slate-200/70 rounded-lg text-xs font-semibold">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="inline-flex p-1 bg-tint rounded-control border border-line text-xs font-semibold">
             {(['month', 'week', 'day', 'list'] as const).map((v) => (
               <button
                 key={v}
                 type="button"
                 onClick={() => setActiveView(v)}
-                className={`px-3 py-1.5 rounded-md capitalize transition-colors ${
-                  activeView === v ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
-                }`}
+                className={cn(
+                  'px-3 py-1.5 rounded-control capitalize transition-colors cursor-pointer',
+                  activeView === v ? 'bg-navy-800 text-white shadow-xs font-bold' : 'text-ink-soft hover:text-navy-800'
+                )}
               >
                 {v}
               </button>
@@ -207,12 +215,12 @@ export const CalendarScreen: React.FC = () => {
           <Button
             size="sm"
             onClick={() => setIsModalOpen(true)}
-            leftIcon={<Plus className="w-4 h-4" />}
+            leftIcon={<Plus className="size-4" />}
           >
             New Event
           </Button>
         </div>
-      </div>
+      </header>
 
       {/* Google Calendar Status Banner (Section 7) */}
       <Card padding="sm" className="bg-slate-50 border-slate-200">
@@ -263,17 +271,18 @@ export const CalendarScreen: React.FC = () => {
       {/* Filter and Search Bar */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-slate-500">Filter:</span>
+          <span className="text-xs font-semibold text-ink-soft">Filter:</span>
           {(['all', 'meeting', 'deadline', 'review', 'holiday'] as const).map((t) => (
             <button
               key={t}
               type="button"
               onClick={() => setFilterType(t)}
-              className={`px-2.5 py-1 rounded-md text-xs font-medium capitalize transition-colors ${
+              className={cn(
+                'px-2.5 py-1 rounded-control text-xs font-semibold capitalize transition-colors cursor-pointer',
                 filterType === t
-                  ? 'bg-blue-600 text-white font-bold'
-                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-              }`}
+                  ? 'bg-navy-800 text-white shadow-xs'
+                  : 'bg-surface border border-line text-ink-soft hover:bg-tint hover:text-navy-800'
+              )}
             >
               {t}
             </button>
@@ -281,13 +290,13 @@ export const CalendarScreen: React.FC = () => {
         </div>
 
         <div className="relative w-64">
-          <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+          <Search className="size-3.5 absolute left-3 top-2.5 text-ink-faint" />
           <input
             type="text"
             placeholder="Search events..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full text-xs pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-900"
+            className="w-full text-xs pl-8 pr-3 py-1.5 bg-surface border border-line rounded-control text-ink focus:outline-none focus:ring-2 focus:ring-navy-500"
           />
         </div>
       </div>
@@ -352,23 +361,25 @@ export const CalendarScreen: React.FC = () => {
                     <div
                       key={idx}
                       onClick={() => cell.isCurrentMonth && setSelectedDay(cell.day)}
-                      className={`min-h-[96px] p-2 flex flex-col justify-between transition-colors cursor-pointer ${
+                      className={cn(
+                        'min-h-24 p-2 flex flex-col justify-between transition-colors cursor-pointer',
                         !cell.isCurrentMonth
-                          ? 'bg-slate-50/50 text-slate-300'
+                          ? 'bg-canvas text-ink-faint'
                           : cell.day === selectedDay
-                          ? 'bg-blue-50/40 ring-1 ring-blue-500 inset-0'
-                          : 'bg-white hover:bg-slate-50/70'
-                      }`}
+                          ? 'bg-tint ring-1 ring-navy-500 inset-0'
+                          : 'bg-surface hover:bg-tint/50'
+                      )}
                     >
                       <div className="flex items-center justify-between">
                         <span
-                          className={`text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full ${
+                          className={cn(
+                            'text-xs font-bold size-6 flex items-center justify-center rounded-control',
                             isToday
-                              ? 'bg-blue-600 text-white'
+                              ? 'bg-navy-800 text-white'
                               : cell.isCurrentMonth
-                              ? 'text-slate-800'
-                              : 'text-slate-300'
-                          }`}
+                              ? 'text-ink'
+                              : 'text-ink-faint'
+                          )}
                         >
                           {cell.day}
                         </span>
@@ -378,20 +389,21 @@ export const CalendarScreen: React.FC = () => {
                       {cell.events.slice(0, 2).map((ev: any) => (
                         <div
                           key={ev.id}
-                          className={`text-[10px] px-1.5 py-0.5 rounded truncate font-medium ${
+                          className={cn(
+                            'text-[10px] px-1.5 py-0.5 rounded-sm truncate font-medium',
                             ev.type === 'deadline'
-                              ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                              ? 'bg-danger-50 text-danger-700 border border-danger-200'
                               : ev.type === 'meeting'
-                              ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                              ? 'bg-tint text-navy-800 border border-navy-200/60'
                               : 'bg-purple-50 text-purple-700 border border-purple-200'
-                          }`}
+                          )}
                           title={ev.title}
                         >
                           {ev.title}
                         </div>
                       ))}
                       {cell.events.length > 2 && (
-                        <span className="text-[9px] font-bold text-slate-400 block">
+                        <span className="text-[9px] font-bold text-ink-faint block">
                           +{cell.events.length - 2} more
                         </span>
                       )}
@@ -428,19 +440,19 @@ export const CalendarScreen: React.FC = () => {
 
           {activeView === 'list' && (
             <Card padding="none" className="overflow-hidden">
-              <div className="divide-y divide-slate-100 text-xs">
+              <div className="divide-y divide-line text-xs">
                 {filteredEvents.map((e: any) => (
-                  <div key={e.id} className="p-3.5 flex items-center justify-between hover:bg-slate-50">
+                  <div key={e.id} className="p-3.5 flex items-center justify-between hover:bg-tint transition-colors">
                     <div className="flex items-center gap-3">
-                      <div className="w-20 font-bold text-blue-600">
+                      <div className="w-20 font-bold text-navy-800 dark:text-gold-300 font-mono">
                         {new Date(e.startTime).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
                       </div>
                       <div>
-                        <h4 className="font-bold text-slate-900">{e.title}</h4>
-                        {e.location && <p className="text-slate-500 text-[11px]">{e.location}</p>}
+                        <h4 className="font-bold text-ink">{e.title}</h4>
+                        {e.location && <p className="text-ink-soft text-[11px]">{e.location}</p>}
                       </div>
                     </div>
-                    <Badge variant="primary" size="sm">
+                    <Badge tone="navy" size="sm">
                       {e.type}
                     </Badge>
                   </div>
@@ -450,19 +462,19 @@ export const CalendarScreen: React.FC = () => {
           )}
 
           {activeView === 'week' && (
-            <Card padding="md">
-              <h3 className="text-sm font-bold text-slate-900 mb-2">Weekly Schedule View</h3>
-              <p className="text-xs text-slate-500 mb-4">Monday 19 Oct — Sunday 25 Oct 2026</p>
+            <Card padding="md" className="border-t-2 border-t-navy-800">
+              <h3 className="text-sm font-display font-bold text-ink mb-2">Weekly Schedule View</h3>
+              <p className="text-xs text-ink-soft mb-4">Monday 19 Oct — Sunday 25 Oct 2026</p>
               <div className="space-y-2 text-xs">
                 {filteredEvents.map((e: any) => (
-                  <div key={e.id} className="p-2.5 bg-slate-50 rounded-lg flex items-center justify-between">
+                  <div key={e.id} className="p-2.5 bg-canvas rounded-control border border-line flex items-center justify-between">
                     <div>
-                      <span className="font-bold text-blue-600 mr-2">
+                      <span className="font-bold text-navy-800 dark:text-gold-300 mr-2 font-mono">
                         {new Date(e.startTime).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}:
                       </span>
-                      <span className="font-bold text-slate-900">{e.title}</span>
+                      <span className="font-bold text-ink">{e.title}</span>
                     </div>
-                    <Badge variant="primary" size="sm">{e.type}</Badge>
+                    <Badge tone="navy" size="sm">{e.type}</Badge>
                   </div>
                 ))}
               </div>

@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext.js';
 import { Button } from '../../components/ui/Button.js';
 import { Badge } from '../../components/ui/Badge.js';
 import { Card } from '../../components/ui/Card.js';
+import { StatTile } from '../../components/ui/StatTile.js';
 import { Modal } from '../../components/ui/Modal.js';
 import { Select } from '../../components/ui/Select.js';
 import { Textarea } from '../../components/ui/Textarea.js';
@@ -16,10 +17,11 @@ import {
   Settings,
   FileText,
   Sparkles,
-  CheckCircle,
+  CheckCircle2,
   LogOut,
   LogIn,
   AlertCircle,
+  CalendarClock,
 } from 'lucide-react';
 
 export const AttendanceScreen: React.FC = () => {
@@ -47,7 +49,9 @@ export const AttendanceScreen: React.FC = () => {
   const [reviewComment, setReviewComment] = useState('');
 
   const isManagement =
-    currentUser?.role === USER_ROLES.ADMIN || currentUser?.role === USER_ROLES.LEAD;
+    currentUser?.role === USER_ROLES.ADMIN ||
+    currentUser?.role === USER_ROLES.MANAGER ||
+    currentUser?.role === USER_ROLES.LEAD;
   const isAdmin = currentUser?.role === USER_ROLES.ADMIN;
 
   // 1. Fetch today's check-ins
@@ -220,31 +224,38 @@ export const AttendanceScreen: React.FC = () => {
 
       const rec = recordsMap.get(day);
       let code = '';
-      let color = 'bg-slate-50 dark:bg-slate-800/40 text-slate-400';
+      let color = 'bg-surface dark:bg-navy-900/60 border border-line text-ink-soft hover:border-navy-300 dark:hover:border-navy-600';
+      let statusLabel = 'Working Day';
 
       if (isWeekend) {
         code = 'WO';
-        color = 'bg-slate-100 dark:bg-slate-800 text-slate-500 font-semibold';
+        color = 'bg-slate-100/70 dark:bg-navy-950/70 border border-slate-200/70 dark:border-navy-800/80 text-ink-faint font-semibold';
+        statusLabel = 'Weekend (Off)';
       } else if (rec) {
         if (rec.status === 'present') {
           code = 'P';
-          color = 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-bold';
+          color = 'bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-700/70 text-emerald-800 dark:text-emerald-300 font-bold';
+          statusLabel = 'Present';
         } else if (rec.status === 'late') {
           code = 'L';
-          color = 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 font-bold';
+          color = 'bg-amber-50 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-700/70 text-amber-900 dark:text-amber-300 font-bold';
+          statusLabel = 'Late Arrival';
         } else if (rec.status === 'half_day') {
           code = 'HD';
-          color = 'bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 font-bold';
+          color = 'bg-sky-50 dark:bg-sky-950/50 border border-sky-300 dark:border-sky-700/70 text-sky-900 dark:text-sky-300 font-bold';
+          statusLabel = 'Half Day';
         } else if (rec.status === 'leave') {
           code = 'LV';
-          color = 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-bold';
+          color = 'bg-violet-50 dark:bg-violet-950/50 border border-violet-300 dark:border-violet-700/70 text-violet-900 dark:text-violet-300 font-bold';
+          statusLabel = 'Approved Leave';
         } else if (rec.status === 'absent') {
           code = 'A';
-          color = 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 font-bold';
+          color = 'bg-rose-50 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-700/70 text-rose-900 dark:text-rose-300 font-bold';
+          statusLabel = 'Absent';
         }
       }
 
-      days.push({ day, code, color });
+      days.push({ day, code, color, statusLabel });
     }
     return days;
   }, [registerData, currentYear, currentMonth, daysInMonth]);
@@ -260,19 +271,20 @@ export const AttendanceScreen: React.FC = () => {
   const isCheckedIn = Boolean(currentUserRecord?.checkInTime && !currentUserRecord?.checkOutTime);
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-16">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="space-y-5 max-w-7xl mx-auto pb-16">
+      {/* SMRU Institutional Executive Header Banner */}
+      <header className="min-w-0 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-card border border-line/70 bg-linear-to-r from-surface via-surface to-indigo-50/25 p-4 sm:p-5 shadow-card">
         <div>
           <div className="flex items-center gap-2">
-            <span className="p-2 rounded-xl bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300">
-              <Clock className="w-5 h-5" />
-            </span>
-            <h1 className="text-2xl font-black text-slate-900 dark:text-slate-100 tracking-tight">
+            <h1 className="text-xl sm:text-2xl font-display font-bold text-ink tracking-tight">
               Attendance Register
             </h1>
+            <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-accent-50 border border-accent-200/80 px-2.5 py-0.5 text-xs font-semibold text-accent-800">
+              <span className="size-1.5 rounded-full bg-accent-500 animate-pulse" />
+              Privacy-First
+            </span>
           </div>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+          <p className="mt-1 text-xs sm:text-sm text-ink-soft">
             University Central Office · Privacy-first attendance without location tracking
           </p>
         </div>
@@ -280,7 +292,7 @@ export const AttendanceScreen: React.FC = () => {
         <div className="flex flex-wrap items-center gap-2.5">
           {isAdmin && (
             <Button
-              variant="outline"
+              variant="secondary"
               size="sm"
               onClick={() => {
                 if (rulesData) {
@@ -291,18 +303,16 @@ export const AttendanceScreen: React.FC = () => {
                 }
                 setIsRulesModalOpen(true);
               }}
-              className="min-h-[44px]"
+              leftIcon={<Settings className="size-4" />}
             >
-              <Settings className="w-4 h-4 mr-1.5" />
               Policy Rules
             </Button>
           )}
 
           <Button
-            variant="outline"
+            variant="secondary"
             size="sm"
             onClick={() => setIsLeaveModalOpen(true)}
-            className="min-h-[44px]"
           >
             Apply for Leave
           </Button>
@@ -312,9 +322,8 @@ export const AttendanceScreen: React.FC = () => {
               size="sm"
               isLoading={checkInMutation.isPending}
               onClick={() => checkInMutation.mutate()}
-              className="min-h-[44px] bg-emerald-600 hover:bg-emerald-700 text-white"
+              leftIcon={<LogIn className="size-4" />}
             >
-              <LogIn className="w-4 h-4 mr-1.5" />
               Check In
             </Button>
           ) : (
@@ -323,46 +332,45 @@ export const AttendanceScreen: React.FC = () => {
               size="sm"
               isLoading={checkOutMutation.isPending}
               onClick={() => checkOutMutation.mutate()}
-              className="min-h-[44px] border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300"
+              leftIcon={<LogOut className="size-4" />}
             >
-              <LogOut className="w-4 h-4 mr-1.5" />
               Check Out
             </Button>
           )}
         </div>
-      </div>
+      </header>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card padding="md">
-          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Monthly Attendance</span>
-          <div className="text-3xl font-black text-slate-900 dark:text-slate-100 mt-1">
-            {registerData?.attendanceThisMonth ?? 0}%
-          </div>
-          <span className="text-[11px] text-slate-400 mt-0.5 block">Threshold for Cert: 75%</span>
-        </Card>
-        <Card padding="md">
-          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Days Present</span>
-          <div className="text-3xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
-            {registerData?.daysPresent ?? 0}
-          </div>
-          <span className="text-[11px] text-slate-400 mt-0.5 block">Full & half days attended</span>
-        </Card>
-        <Card padding="md">
-          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Late Arrivals</span>
-          <div className="text-3xl font-black text-amber-600 dark:text-amber-400 mt-1">
-            {registerData?.lateArrivals ?? 0}
-          </div>
-          <span className="text-[11px] text-slate-400 mt-0.5 block">After grace period</span>
-        </Card>
-        <Card padding="md">
-          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Approved Leave</span>
-          <div className="text-3xl font-black text-slate-900 dark:text-slate-100 mt-1">
-            {registerData?.leaveTaken ?? 0}
-          </div>
-          <span className="text-[11px] text-slate-400 mt-0.5 block">Official days off</span>
-        </Card>
-      </div>
+      {/* Summary StatTiles */}
+      <section aria-label="Attendance Summary" className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <StatTile
+          label="Monthly Attendance"
+          value={`${registerData?.attendanceThisMonth ?? 0}%`}
+          icon={CalendarClock}
+          tone="teal"
+          hint="Threshold for Cert: 75%"
+        />
+        <StatTile
+          label="Days Present"
+          value={registerData?.daysPresent ?? 0}
+          icon={CheckCircle2}
+          tone="success"
+          hint="Full & half days attended"
+        />
+        <StatTile
+          label="Late Arrivals"
+          value={registerData?.lateArrivals ?? 0}
+          icon={Clock}
+          tone="amber"
+          hint="After grace period"
+        />
+        <StatTile
+          label="Approved Leave"
+          value={registerData?.leaveTaken ?? 0}
+          icon={FileText}
+          tone="indigo"
+          hint="Official days off"
+        />
+      </section>
 
       {/* Main Grid: Today's Roster + Monthly Register */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -371,36 +379,36 @@ export const AttendanceScreen: React.FC = () => {
           <Card padding="md">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                <h3 className="text-sm font-bold text-ink font-display">
                   {isManagement ? "Today's Office Roster" : "Your Daily Status"}
                 </h3>
-                <span className="text-[11px] text-slate-400">
+                <span className="text-xs text-ink-soft">
                   {isManagement ? "Administrative Overview" : "Personal Record"}
                 </span>
               </div>
               <div className="flex items-center gap-1.5 text-[11px] font-bold">
-                <span className="text-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 dark:text-emerald-300 px-2 py-0.5 rounded-full">
+                <span className="text-emerald-800 bg-emerald-50 border border-emerald-200 dark:bg-emerald-950/60 dark:border-emerald-800/80 dark:text-emerald-300 px-2 py-0.5 rounded-sm">
                   In {inCount}
                 </span>
-                <span className="text-amber-700 bg-amber-50 dark:bg-amber-950/40 dark:text-amber-300 px-2 py-0.5 rounded-full">
+                <span className="text-amber-800 bg-amber-50 border border-amber-200 dark:bg-amber-950/60 dark:border-amber-800/80 dark:text-amber-300 px-2 py-0.5 rounded-sm">
                   Late {lateCount}
                 </span>
-                <span className="text-slate-600 bg-slate-100 dark:bg-slate-800 dark:text-slate-300 px-2 py-0.5 rounded-full">
+                <span className="text-ink-soft bg-canvas border border-line dark:bg-navy-900/60 dark:border-navy-700 dark:text-ink-soft px-2 py-0.5 rounded-sm">
                   Not in {notYetCount}
                 </span>
               </div>
             </div>
 
             {isLoadingToday ? (
-              <div className="py-8 text-center text-xs text-slate-400 animate-pulse">
+              <div className="py-8 text-center text-xs text-ink-soft animate-pulse">
                 Loading attendance records...
               </div>
             ) : todayRecords.length === 0 ? (
-              <div className="py-8 text-center text-xs text-slate-400">
+              <div className="py-8 text-center text-xs text-ink-soft">
                 No active records recorded for today yet.
               </div>
             ) : (
-              <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs max-h-96 overflow-y-auto">
+              <div className="divide-y divide-line text-xs max-h-96 overflow-y-auto">
                 {todayRecords.map((item: any) => {
                   const checkInDisplay = item.checkInTime
                     ? new Date(item.checkInTime).toLocaleTimeString([], {
@@ -412,14 +420,14 @@ export const AttendanceScreen: React.FC = () => {
                   return (
                     <div key={item.userId} className="py-3 flex items-center justify-between">
                       <div>
-                        <span className="font-bold text-slate-900 dark:text-slate-100">{item.name}</span>
-                        <div className="text-[10px] text-slate-400 mt-0.5">
+                        <span className="font-bold text-ink font-display">{item.name}</span>
+                        <div className="text-[10px] text-ink-soft font-semibold uppercase tracking-wider mt-0.5">
                           {item.role?.replace(/_/g, ' ').toUpperCase()}
                         </div>
                       </div>
 
                       <div className="flex items-center gap-3">
-                        <span className="text-slate-500 dark:text-slate-400 text-[11px] font-mono">
+                        <span className="text-ink-soft text-[11px] font-mono">
                           {checkInDisplay}
                         </span>
                         <Badge
@@ -455,16 +463,16 @@ export const AttendanceScreen: React.FC = () => {
         <div className="lg:col-span-7 space-y-6">
           <Card padding="md">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+              <h3 className="text-sm font-bold text-ink font-display">
                 Official Register — {monthName} {currentYear}
               </h3>
-              <span className="text-[11px] text-slate-400">
+              <span className="text-xs text-ink-soft font-medium">
                 {currentUser?.name}
               </span>
             </div>
 
             {/* Days of Week Header */}
-            <div className="grid grid-cols-7 text-center font-bold text-slate-500 dark:text-slate-400 text-xs py-1 border-b border-slate-100 dark:border-slate-800 mb-2">
+            <div className="grid grid-cols-7 text-center font-bold text-ink-soft text-xs py-2 border-b border-line mb-2.5">
               <span>Mon</span>
               <span>Tue</span>
               <span>Wed</span>
@@ -475,37 +483,38 @@ export const AttendanceScreen: React.FC = () => {
             </div>
 
             {/* Register Grid */}
-            <div className="grid grid-cols-7 gap-1.5 text-xs">
+            <div className="grid grid-cols-7 gap-1.5 sm:gap-2 text-xs">
               {monthlyRegister.map((d) => (
                 <div
                   key={d.day}
-                  className={`h-11 rounded-lg border border-slate-200/60 dark:border-slate-700/60 p-1 flex flex-col justify-between ${d.color}`}
+                  title={`Day ${d.day}: ${d.statusLabel}`}
+                  className={`h-11 sm:h-12 rounded-sm p-1.5 flex flex-col justify-between transition-colors ${d.color}`}
                 >
-                  <span className="text-[10px] leading-none opacity-80">{d.day}</span>
-                  <span className="text-[11px] text-center font-bold">{d.code}</span>
+                  <span className="text-[10px] font-mono font-bold leading-none text-ink">{d.day}</span>
+                  <span className="text-[11px] text-center font-bold tracking-tight">{d.code}</span>
                 </div>
               ))}
             </div>
 
             {/* Legend */}
-            <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-600 dark:text-slate-400 mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
+            <div className="flex flex-wrap items-center gap-4 text-[11px] text-ink-soft mt-4 pt-3 border-t border-line">
               <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Present (P)
+                <span className="size-2.5 rounded-full bg-emerald-500" /> Present (P)
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> Late (L)
+                <span className="size-2.5 rounded-full bg-amber-500" /> Late (L)
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-sky-500" /> Half-Day (HD)
+                <span className="size-2.5 rounded-full bg-sky-500" /> Half-Day (HD)
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-slate-400" /> Weekend (WO)
+                <span className="size-2.5 rounded-full bg-slate-400 dark:bg-navy-600" /> Weekend (WO)
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-indigo-500" /> Leave (LV)
+                <span className="size-2.5 rounded-full bg-indigo-500" /> Leave (LV)
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-rose-500" /> Absent (A)
+                <span className="size-2.5 rounded-full bg-rose-500" /> Absent (A)
               </span>
             </div>
           </Card>
@@ -514,33 +523,33 @@ export const AttendanceScreen: React.FC = () => {
           {isManagement && (
             <Card padding="md">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                <h3 className="text-sm font-bold text-ink font-display">
                   Leave & WFH Approvals ({pendingLeaves.length} Pending Review)
                 </h3>
               </div>
 
               {pendingLeaves.length === 0 ? (
-                <div className="text-center py-6 text-xs text-slate-400">
+                <div className="text-center py-6 text-xs text-ink-soft">
                   No pending leave applications requiring review.
                 </div>
               ) : (
-                <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                <div className="divide-y divide-line text-xs">
                   {pendingLeaves.map((lr: any) => (
                     <div key={lr.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="font-bold text-slate-900 dark:text-slate-100">{lr.userName}</span>
+                          <span className="font-bold text-ink font-display">{lr.userName}</span>
                           <Badge variant="purple" size="sm">
                             {(lr.leaveCategory || 'full_day').replace('_', ' ').toUpperCase()}
                           </Badge>
                           {lr.partialDayDuration && (
-                            <span className="text-[10px] text-slate-500 font-medium">({lr.partialDayDuration})</span>
+                            <span className="text-[10px] text-ink-soft font-medium">({lr.partialDayDuration})</span>
                           )}
                         </div>
-                        <p className="text-slate-600 dark:text-slate-400 mt-1">
+                        <p className="text-ink-soft mt-1">
                           Dates: {lr.startDate} to {lr.endDate}
                         </p>
-                        <p className="text-slate-700 dark:text-slate-300 italic text-[11px] mt-0.5 bg-slate-50 dark:bg-slate-800 p-2 rounded">
+                        <p className="text-ink italic text-[11px] mt-1 bg-tint border border-line p-2.5 rounded-sm">
                           “{lr.reason}”
                         </p>
                       </div>
@@ -596,19 +605,19 @@ export const AttendanceScreen: React.FC = () => {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                <label className="block text-xs font-semibold text-ink mb-1.5">
                   Office Start Time (HH:MM)
                 </label>
                 <input
                   type="time"
                   value={officeStartTime}
                   onChange={(e) => setOfficeStartTime(e.target.value)}
-                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 py-2 px-3 text-xs bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px]"
+                  className="w-full rounded-control border border-line py-2 px-3 text-xs bg-surface text-ink focus:outline-none focus:ring-2 focus:ring-navy-500 min-h-11"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                <label className="block text-xs font-semibold text-ink mb-1.5">
                   Grace Period (Minutes)
                 </label>
                 <input
@@ -617,12 +626,12 @@ export const AttendanceScreen: React.FC = () => {
                   max="60"
                   value={graceMinutes}
                   onChange={(e) => setGraceMinutes(parseInt(e.target.value, 10) || 0)}
-                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 py-2 px-3 text-xs bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px]"
+                  className="w-full rounded-control border border-line py-2 px-3 text-xs bg-surface text-ink focus:outline-none focus:ring-2 focus:ring-navy-500 min-h-11"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                <label className="block text-xs font-semibold text-ink mb-1.5">
                   Half-Day Minimum Hours
                 </label>
                 <input
@@ -632,31 +641,31 @@ export const AttendanceScreen: React.FC = () => {
                   max="8"
                   value={halfDayHours}
                   onChange={(e) => setHalfDayHours(parseFloat(e.target.value) || 4.0)}
-                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 py-2 px-3 text-xs bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px]"
+                  className="w-full rounded-control border border-line py-2 px-3 text-xs bg-surface text-ink focus:outline-none focus:ring-2 focus:ring-navy-500 min-h-11"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                <label className="block text-xs font-semibold text-ink mb-1.5">
                   Absent Cutoff Time (HH:MM)
                 </label>
                 <input
                   type="time"
                   value={absentCutoffTime}
                   onChange={(e) => setAbsentCutoffTime(e.target.value)}
-                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 py-2 px-3 text-xs bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px]"
+                  className="w-full rounded-control border border-line py-2 px-3 text-xs bg-surface text-ink focus:outline-none focus:ring-2 focus:ring-navy-500 min-h-11"
                 />
               </div>
             </div>
 
-            <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-[11px] text-blue-700 dark:text-blue-300 flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <div className="p-3 rounded-card bg-tint text-[11px] text-navy-800 dark:text-navy-100 border border-navy-200/60 dark:border-navy-700/60 flex items-start gap-2">
+              <AlertCircle className="size-4 shrink-0 mt-0.5 text-navy-600 dark:text-navy-300" />
               <span>
                 Interns checking in between {officeStartTime} and {graceMinutes} minutes after are marked Present. After grace period, arrivals are marked Late. Check-ins after {absentCutoffTime} without an approved leave request are marked Absent.
               </span>
             </div>
 
-            <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+            <div className="flex justify-end gap-2.5 pt-3 border-t border-line">
               <Button variant="outline" size="sm" onClick={() => setIsRulesModalOpen(false)}>
                 Cancel
               </Button>
@@ -682,10 +691,10 @@ export const AttendanceScreen: React.FC = () => {
           description={`Action: ${reviewAction.replace(/_/g, ' ').toUpperCase()}`}
         >
           <div className="space-y-4">
-            <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/60 text-xs space-y-1">
-              <div><strong className="text-slate-700 dark:text-slate-300">Category:</strong> {reviewingLeave.leaveCategory}</div>
-              <div><strong className="text-slate-700 dark:text-slate-300">Period:</strong> {reviewingLeave.startDate} to {reviewingLeave.endDate}</div>
-              <div><strong className="text-slate-700 dark:text-slate-300">Applicant Reason:</strong> {reviewingLeave.reason}</div>
+            <div className="p-3 rounded-sm bg-tint border border-line text-xs space-y-1">
+              <div><strong className="text-ink">Category:</strong> {reviewingLeave.leaveCategory}</div>
+              <div><strong className="text-ink">Period:</strong> {reviewingLeave.startDate} to {reviewingLeave.endDate}</div>
+              <div><strong className="text-ink">Applicant Reason:</strong> {reviewingLeave.reason}</div>
             </div>
 
             <Textarea
@@ -703,7 +712,7 @@ export const AttendanceScreen: React.FC = () => {
               required
             />
 
-            <div className="flex justify-end gap-2.5 pt-3">
+            <div className="flex justify-end gap-2.5 pt-3 border-t border-line">
               <Button variant="outline" size="sm" onClick={() => setReviewingLeave(null)}>
                 Cancel
               </Button>
@@ -761,31 +770,31 @@ export const AttendanceScreen: React.FC = () => {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+              <label className="block text-xs font-semibold text-ink mb-1.5">
                 Start Date *
               </label>
               <input
                 type="date"
                 value={leaveStart}
                 onChange={(e) => setLeaveStart(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 dark:border-slate-700 py-2 px-3 text-xs bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px]"
+                className="w-full rounded-control border border-line py-2 px-3 text-xs bg-surface text-ink focus:outline-none focus:ring-2 focus:ring-navy-500 min-h-11"
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+              <label className="block text-xs font-semibold text-ink mb-1.5">
                 End Date *
               </label>
               <input
                 type="date"
                 value={leaveEnd}
                 onChange={(e) => setLeaveEnd(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 dark:border-slate-700 py-2 px-3 text-xs bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px]"
+                className="w-full rounded-control border border-line py-2 px-3 text-xs bg-surface text-ink focus:outline-none focus:ring-2 focus:ring-navy-500 min-h-11"
               />
             </div>
           </div>
 
           <div>
-            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 block mb-1.5">
+            <span className="text-[11px] font-bold text-ink-soft block mb-1.5">
               Quick-Fill Standard Letter Templates:
             </span>
             <div className="flex flex-wrap gap-1.5">
@@ -796,9 +805,9 @@ export const AttendanceScreen: React.FC = () => {
                     'Requesting formal permission to Work From Home on the specified dates to focus on development deliverables for our current project sprint. All daily standup checkpoints will be maintained and commits pushed to GitHub on schedule.'
                   )
                 }
-                className="inline-flex items-center gap-1 text-[10px] font-semibold bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 px-2 py-1.5 rounded-md hover:bg-blue-100 border border-blue-200 dark:border-blue-800 min-h-[36px]"
+                className="inline-flex items-center gap-1 text-[10px] font-semibold bg-tint text-navy-800 dark:text-navy-100 px-2 py-1.5 rounded-control hover:bg-navy-100 dark:hover:bg-navy-900 border border-navy-200/60 dark:border-navy-700 min-h-9 cursor-pointer"
               >
-                <Sparkles className="w-3 h-3" /> WFH Sprint
+                <Sparkles className="size-3 text-navy-600 dark:text-navy-300" /> WFH Sprint
               </button>
               <button
                 type="button"
@@ -807,9 +816,9 @@ export const AttendanceScreen: React.FC = () => {
                     'Requesting leave of absence due to medical consultation and recovery. Ongoing task parts have been documented and handed over to fellow team members.'
                   )
                 }
-                className="inline-flex items-center gap-1 text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 px-2 py-1.5 rounded-md hover:bg-emerald-100 border border-emerald-200 dark:border-emerald-800 min-h-[36px]"
+                className="inline-flex items-center gap-1 text-[10px] font-semibold bg-accent-50 text-accent-800 dark:bg-accent-950/40 dark:text-accent-300 px-2 py-1.5 rounded-control hover:bg-accent-100 border border-accent-200/60 dark:border-accent-800 min-h-9 cursor-pointer"
               >
-                <FileText className="w-3 h-3" /> Medical Leave
+                <FileText className="size-3 text-accent-600 dark:text-accent-300" /> Medical Leave
               </button>
               <button
                 type="button"
@@ -818,7 +827,7 @@ export const AttendanceScreen: React.FC = () => {
                     'Requesting academic leave of absence for semester university examination schedule. Academic examination timetable is available for Central Office verification.'
                   )
                 }
-                className="inline-flex items-center gap-1 text-[10px] font-semibold bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 px-2 py-1.5 rounded-md hover:bg-purple-100 border border-purple-200 dark:border-purple-800 min-h-[36px]"
+                className="inline-flex items-center gap-1 text-[10px] font-semibold bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 px-2 py-1.5 rounded-control hover:bg-purple-100 border border-purple-200 dark:border-purple-800 min-h-9 cursor-pointer"
               >
                 <Calendar className="w-3 h-3" /> Exam Leave
               </button>
@@ -833,7 +842,7 @@ export const AttendanceScreen: React.FC = () => {
             onChange={(e) => setLeaveReason(e.target.value)}
           />
 
-          <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+          <div className="flex justify-end gap-2.5 pt-3 border-t border-line">
             <Button variant="outline" size="sm" onClick={() => setIsLeaveModalOpen(false)}>
               Cancel
             </Button>

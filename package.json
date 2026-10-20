@@ -18,6 +18,7 @@
     "test": "npm run test --workspaces"
   },
   "devDependencies": {
+    "@esbuild/darwin-arm64": "^0.28.2",
     "concurrently": "^9.1.2",
     "typescript": "^5.8.2"
   }

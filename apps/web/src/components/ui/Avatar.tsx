@@ -1,38 +1,51 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { cn, initials } from './utils';
 
 export interface AvatarProps {
   name: string;
   src?: string | null;
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
   status?: 'online' | 'offline' | 'busy' | 'away';
+  decorative?: boolean;
   className?: string;
 }
 
-const colorPalette = [
-  'bg-blue-600 text-white',
-  'bg-indigo-600 text-white',
-  'bg-purple-600 text-white',
-  'bg-emerald-600 text-white',
-  'bg-teal-600 text-white',
-  'bg-amber-600 text-white',
-  'bg-rose-600 text-white',
-  'bg-cyan-600 text-white',
-];
+const SIZES = {
+  xs: 'size-6 text-[10px]',
+  sm: 'size-8 text-xs',
+  md: 'size-10 text-sm',
+  lg: 'size-12 text-base',
+  xl: 'size-16 text-xl',
+} as const;
 
-function getInitials(name: string): string {
-  if (!name) return 'U';
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
+const STATUS_SIZES = {
+  xs: 'size-1.5',
+  sm: 'size-2',
+  md: 'size-2.5',
+  lg: 'size-3',
+  xl: 'size-3.5',
+} as const;
 
-function getColorIndex(name: string): string {
+const STATUS_COLORS = {
+  online: 'bg-accent-500',
+  offline: 'bg-ink-faint',
+  busy: 'bg-danger-600',
+  away: 'bg-gold-500',
+};
+
+const PALETTE = [
+  'bg-navy-100 text-navy-800',
+  'bg-accent-100 text-accent-800',
+  'bg-gold-100 text-gold-800',
+  'bg-status-requested-bg text-status-requested',
+  'bg-status-reschedule-bg text-status-reschedule',
+  'bg-status-outcome-bg text-status-outcome',
+] as const;
+
+function paletteFor(name: string): string {
   let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const index = Math.abs(hash) % colorPalette.length;
-  return colorPalette[index];
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) | 0;
+  return PALETTE[Math.abs(hash) % PALETTE.length]!;
 }
 
 export const Avatar: React.FC<AvatarProps> = ({
@@ -40,55 +53,41 @@ export const Avatar: React.FC<AvatarProps> = ({
   src,
   size = 'md',
   status,
-  className = '',
+  decorative = false,
+  className,
 }) => {
-  const sizeClasses = {
-    xs: 'w-6 h-6 text-[10px]',
-    sm: 'w-8 h-8 text-xs',
-    md: 'w-10 h-10 text-sm font-bold',
-    lg: 'w-12 h-12 text-base font-bold',
-    xl: 'w-16 h-16 text-lg font-bold',
-  }[size];
-
-  const statusSize = {
-    xs: 'w-1.5 h-1.5',
-    sm: 'w-2 h-2',
-    md: 'w-2.5 h-2.5',
-    lg: 'w-3 h-3',
-    xl: 'w-3.5 h-3.5',
-  }[size];
-
-  const statusColor = {
-    online: 'bg-emerald-500',
-    offline: 'bg-slate-400',
-    busy: 'bg-rose-500',
-    away: 'bg-amber-500',
-  };
-
-  const colorClass = getColorIndex(name);
-  const initials = getInitials(name);
+  const [failed, setFailed] = useState(false);
+  const a11y = decorative ? { 'aria-hidden': true as const } : { role: 'img', 'aria-label': name };
 
   return (
-    <div className={`relative inline-flex shrink-0 ${className}`}>
-      {src ? (
-        <img
-          src={src}
-          alt={name}
-          className={`${sizeClasses} rounded-full object-cover ring-2 ring-white dark:ring-slate-900 shadow-xs`}
-        />
-      ) : (
-        <div
-          className={`${sizeClasses} ${colorClass} rounded-full flex items-center justify-center font-bold tracking-tight shadow-xs select-none`}
-        >
-          {initials}
-        </div>
-      )}
+    <div className={cn('relative inline-flex shrink-0 select-none', className)}>
+      <span
+        {...a11y}
+        className={cn(
+          'inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full font-bold shadow-xs',
+          SIZES[size],
+          paletteFor(name),
+          className
+        )}
+      >
+        {src && !failed ? (
+          <img src={src} alt={name} className="size-full object-cover" onError={() => setFailed(true)} />
+        ) : (
+          initials(name)
+        )}
+      </span>
 
       {status && (
         <span
-          className={`absolute bottom-0 right-0 ${statusSize} ${statusColor[status]} rounded-full ring-2 ring-white dark:ring-slate-900`}
+          className={cn(
+            'absolute bottom-0 right-0 rounded-full ring-2 ring-white dark:ring-slate-900',
+            STATUS_SIZES[size],
+            STATUS_COLORS[status]
+          )}
         />
       )}
     </div>
   );
 };
+
+export default Avatar;

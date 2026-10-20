@@ -6,6 +6,8 @@ import { useToast } from '../../components/ui/Toast.js';
 import { Card } from '../../components/ui/Card.js';
 import { Button } from '../../components/ui/Button.js';
 import { Badge } from '../../components/ui/Badge.js';
+import { Avatar } from '../../components/ui/Avatar.js';
+import { USER_ROLES } from '@command-center/shared';
 import {
   User,
   Mail,
@@ -19,6 +21,10 @@ import {
   ExternalLink,
   RefreshCw,
   Sparkles,
+  Award,
+  FileText,
+  CheckCircle2,
+  AlertTriangle,
 } from 'lucide-react';
 
 export const ProfileScreen: React.FC = () => {
@@ -30,6 +36,14 @@ export const ProfileScreen: React.FC = () => {
   const [name, setName] = useState(currentUser?.name || '');
   const [avatarUrl, setAvatarUrl] = useState(currentUser?.avatarUrl || '');
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
+
+  // Academic Marksheet (PDF Page 6)
+  const [marksheetInput, setMarksheetInput] = useState(
+    currentUser?.marksheetPercentage !== null && currentUser?.marksheetPercentage !== undefined
+      ? String(currentUser.marksheetPercentage)
+      : ''
+  );
+  const [isSavingMarksheet, setIsSavingMarksheet] = useState(false);
 
   // Change Password State
   const [currentPassword, setCurrentPassword] = useState('');
@@ -67,6 +81,36 @@ export const ProfileScreen: React.FC = () => {
       showToast({ type: 'error', title: 'Update Failed', message: err.message });
     } finally {
       setIsUpdatingProfile(false);
+    }
+  };
+
+  const handleSaveMarksheet = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const val = parseFloat(marksheetInput);
+    if (isNaN(val) || val < 0 || val > 100) {
+      showToast({ type: 'error', title: 'Invalid Percentage', message: 'Enter a valid percentage between 0 and 100.' });
+      return;
+    }
+
+    setIsSavingMarksheet(true);
+    try {
+      const res = await apiRequest<{ user: any }>('/auth/profile', {
+        method: 'PATCH',
+        body: JSON.stringify({ marksheetPercentage: val }),
+      });
+      updateCurrentUser({
+        marksheetPercentage: res.user.marksheetPercentage,
+        marksheetConfirmed: res.user.marksheetConfirmed,
+      });
+      showToast({
+        type: 'success',
+        title: 'Marksheet Submitted',
+        message: 'Marksheet percentage saved. Awaiting Team Lead or Admin verification.',
+      });
+    } catch (err: any) {
+      showToast({ type: 'error', title: 'Save Failed', message: err.message });
+    } finally {
+      setIsSavingMarksheet(false);
     }
   };
 
@@ -164,57 +208,59 @@ export const ProfileScreen: React.FC = () => {
   if (!currentUser) return null;
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto pb-16">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-          Personnel Profile & Settings
-        </h1>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-          Manage your university credentials, security sessions, and automated calendar integrations.
-        </p>
-      </div>
+    <div className="space-y-5 max-w-4xl mx-auto pb-16">
+      {/* SMRU Institutional Executive Header Banner */}
+      <header className="min-w-0 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-card border border-line/70 bg-linear-to-r from-surface via-surface to-indigo-50/25 p-4 sm:p-5 shadow-card">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl sm:text-2xl font-display font-bold text-ink tracking-tight">
+              Personnel Profile & Settings
+            </h1>
+            <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-accent-50 border border-accent-200/80 px-2.5 py-0.5 text-xs font-semibold text-accent-800">
+              <span className="size-1.5 rounded-full bg-accent-500 animate-pulse" />
+              Active Session
+            </span>
+          </div>
+          <p className="mt-1 text-xs sm:text-sm text-ink-soft">
+            Manage your university credentials, security sessions, and automated calendar integrations.
+          </p>
+        </div>
+
+        <Button variant="secondary" size="sm" onClick={logout} leftIcon={<LogOut className="size-4" />}>
+          Sign Out
+        </Button>
+      </header>
 
       {/* Profile Overview Card */}
-      <Card padding="md">
+      <Card padding="md" className="border-t-3 border-t-navy-800">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-2xl bg-blue-600/10 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 flex items-center justify-center font-black text-2xl shrink-0 overflow-hidden">
-              {currentUser.avatarUrl ? (
-                <img src={currentUser.avatarUrl} alt={currentUser.name} className="w-full h-full object-cover" />
-              ) : (
-                currentUser.name.charAt(0)
-              )}
-            </div>
+            <Avatar name={currentUser.name} src={currentUser.avatarUrl} size="lg" />
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-lg font-black text-slate-900 dark:text-white">{currentUser.name}</h2>
-                <Badge variant="default" size="sm">
+                <h2 className="text-lg font-display font-bold text-ink">{currentUser.name}</h2>
+                <Badge tone="navy" size="sm">
                   {currentUser.role.replace('_', ' ').toUpperCase()}
                 </Badge>
               </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{currentUser.email}</p>
+              <p className="text-xs text-ink-soft mt-0.5">{currentUser.email}</p>
               {currentUser.pairedPaidInternName && (
-                <p className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold mt-1">
+                <p className="text-[11px] text-navy-800 dark:text-gold-300 font-semibold mt-1">
                   Paired Core Mentor: {currentUser.pairedPaidInternName}
                 </p>
               )}
             </div>
           </div>
-
-          <Button variant="outline" size="sm" onClick={logout} leftIcon={<LogOut className="w-4 h-4" />}>
-            Sign Out
-          </Button>
         </div>
       </Card>
 
       {/* Personal Info Edit */}
       <Card padding="md">
-        <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-3">Edit Display Information</h3>
+        <h3 className="text-sm font-display font-bold text-ink mb-3">Edit Display Information</h3>
         <form onSubmit={handleUpdateProfile} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              <label className="block text-xs font-semibold text-ink mb-1">
                 Full Name
               </label>
               <input
@@ -222,11 +268,11 @@ export const ProfileScreen: React.FC = () => {
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-600 min-h-[44px]"
+                className="w-full px-3.5 py-2.5 rounded-control border border-line bg-surface text-xs text-ink focus:outline-none focus:ring-2 focus:ring-navy-500 min-h-11"
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              <label className="block text-xs font-semibold text-ink mb-1">
                 Avatar Image URL (Optional)
               </label>
               <input
@@ -234,7 +280,7 @@ export const ProfileScreen: React.FC = () => {
                 value={avatarUrl}
                 onChange={(e) => setAvatarUrl(e.target.value)}
                 placeholder="https://example.com/photo.jpg"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-600 min-h-[44px]"
+                className="w-full px-3.5 py-2.5 rounded-control border border-line bg-surface text-xs text-ink focus:outline-none focus:ring-2 focus:ring-navy-500 min-h-11"
               />
             </div>
           </div>
@@ -244,15 +290,93 @@ export const ProfileScreen: React.FC = () => {
         </form>
       </Card>
 
+      {/* Academic Marksheet & University Credentials (PDF Page 6) */}
+      {currentUser.role === USER_ROLES.PAID_INTERN && (
+        <Card padding="md" className="border-t-3 border-t-gold-400 bg-linear-to-r from-tint to-surface">
+          <div className="flex items-center gap-2 mb-3">
+            <Award className="size-4 text-gold-600" />
+            <h3 className="text-sm font-display font-bold text-ink">
+              Academic Marksheet & University Credentials (Software Hub 2.0)
+            </h3>
+          </div>
+          <p className="text-xs text-ink-soft mb-4">
+            Under Software Hub 2.0 rules, Core (Paid) Interns must achieve and maintain a compulsory 80% minimum academic result confirmed by the Team Lead or Admin for Level 2 Certificate issuance.
+          </p>
+
+          <form onSubmit={handleSaveMarksheet} className="space-y-4 max-w-md">
+            <div>
+              <label className="block text-xs font-semibold text-ink mb-1">
+                Official Marksheet Academic Percentage (%)
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.1"
+                  required
+                  placeholder="e.g. 88.5"
+                  value={marksheetInput}
+                  onChange={(e) => setMarksheetInput(e.target.value)}
+                  className="w-40 px-3.5 py-2 rounded-control border border-line bg-surface text-xs font-bold text-ink focus:outline-none focus:ring-2 focus:ring-navy-500 min-h-10"
+                />
+                <Button size="sm" type="submit" isLoading={isSavingMarksheet} leftIcon={<FileText className="size-4" />}>
+                  Save & Submit Marksheet
+                </Button>
+              </div>
+            </div>
+
+            {/* Verification Status */}
+            <div className="pt-2">
+              {currentUser.marksheetConfirmed ? (
+                <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-900 flex items-center gap-2.5 text-xs text-emerald-800 dark:text-emerald-300">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <div>
+                    <span className="font-bold block">Academic Percentage Confirmed: {currentUser.marksheetPercentage}%</span>
+                    <span>Verified by Central Office / Team Lead. Compulsory 80% requirement satisfied.</span>
+                  </div>
+                </div>
+              ) : currentUser.marksheetPercentage !== null && currentUser.marksheetPercentage !== undefined ? (
+                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-900 flex items-center gap-2.5 text-xs text-amber-800 dark:text-amber-300">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <div>
+                    <span className="font-bold block">Awaiting Verification: {currentUser.marksheetPercentage}%</span>
+                    <span>Your marksheet has been submitted and is pending verification by your Team Lead or Admin.</span>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-slate-400 italic">No academic marksheet uploaded yet.</p>
+              )}
+            </div>
+          </form>
+        </Card>
+      )}
+
+      {(currentUser.role === USER_ROLES.ADMIN ||
+        currentUser.role === USER_ROLES.MANAGER ||
+        currentUser.role === USER_ROLES.LEAD) && (
+        <Card padding="md" className="border-t-3 border-t-navy-800">
+          <div className="flex items-center gap-2 mb-2">
+            <Award className="size-4 text-gold-600" />
+            <h3 className="text-sm font-display font-bold text-ink">
+              Academic Marksheet Verification Authority
+            </h3>
+          </div>
+          <p className="text-xs text-ink-soft">
+            As an authorized Administrator, Manager, or Team Lead, you have permission to verify and confirm core intern academic marksheet percentages. Visit the Roster screen to review and confirm marksheet scores.
+          </p>
+        </Card>
+      )}
+
       {/* Change Password */}
       <Card padding="md">
         <div className="flex items-center gap-2 mb-3">
-          <Lock className="w-4 h-4 text-blue-600" />
-          <h3 className="text-sm font-bold text-slate-900 dark:text-white">Change Password</h3>
+          <Lock className="size-4 text-navy-700" />
+          <h3 className="text-sm font-display font-bold text-ink">Change Password</h3>
         </div>
         <form onSubmit={handleChangePasswordSubmit} className="space-y-4 max-w-md">
           <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+            <label className="block text-xs font-semibold text-ink mb-1">
               Current Password
             </label>
             <input
@@ -260,11 +384,11 @@ export const ProfileScreen: React.FC = () => {
               value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}
               placeholder="••••••••••••"
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-600 min-h-[44px]"
+              className="w-full px-3.5 py-2.5 rounded-control border border-line bg-surface text-xs text-ink focus:outline-none focus:ring-2 focus:ring-navy-500 min-h-11"
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+            <label className="block text-xs font-semibold text-ink mb-1">
               New Password (min 10 characters, letters & numbers)
             </label>
             <input
@@ -273,11 +397,11 @@ export const ProfileScreen: React.FC = () => {
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               placeholder="••••••••••••"
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-600 min-h-[44px]"
+              className="w-full px-3.5 py-2.5 rounded-control border border-line bg-surface text-xs text-ink focus:outline-none focus:ring-2 focus:ring-navy-500 min-h-11"
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+            <label className="block text-xs font-semibold text-ink mb-1">
               Confirm New Password
             </label>
             <input
@@ -286,7 +410,7 @@ export const ProfileScreen: React.FC = () => {
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="••••••••••••"
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-600 min-h-[44px]"
+              className="w-full px-3.5 py-2.5 rounded-control border border-line bg-surface text-xs text-ink focus:outline-none focus:ring-2 focus:ring-navy-500 min-h-11"
             />
           </div>
           <Button size="sm" type="submit" isLoading={isChangingPass}>
@@ -369,10 +493,10 @@ export const ProfileScreen: React.FC = () => {
         </p>
 
         <div className="space-y-3 max-w-md">
-          <label className="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-950/50 transition-colors">
+          <label className="flex items-center justify-between p-3 rounded-control border border-line cursor-pointer hover:bg-tint transition-colors">
             <div>
-              <div className="text-xs font-bold text-slate-900 dark:text-white">Mute Email Notifications</div>
-              <div className="text-[11px] text-slate-500 dark:text-slate-400">
+              <div className="text-xs font-bold text-ink">Mute Email Notifications</div>
+              <div className="text-[11px] text-ink-soft">
                 Silence daily task reminders, schedule notices, and digest emails.
               </div>
             </div>
@@ -380,14 +504,14 @@ export const ProfileScreen: React.FC = () => {
               type="checkbox"
               checked={emailMuted}
               onChange={(e) => setEmailMuted(e.target.checked)}
-              className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+              className="size-4 rounded-control text-navy-800 focus:ring-navy-500"
             />
           </label>
 
-          <label className="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-950/50 transition-colors">
+          <label className="flex items-center justify-between p-3 rounded-control border border-line cursor-pointer hover:bg-tint transition-colors">
             <div>
-              <div className="text-xs font-bold text-slate-900 dark:text-white">Mute Push Notifications</div>
-              <div className="text-[11px] text-slate-500 dark:text-slate-400">
+              <div className="text-xs font-bold text-ink">Mute Push Notifications</div>
+              <div className="text-[11px] text-ink-soft">
                 Silence browser push alerts on this device.
               </div>
             </div>
@@ -395,7 +519,7 @@ export const ProfileScreen: React.FC = () => {
               type="checkbox"
               checked={pushMuted}
               onChange={(e) => setPushMuted(e.target.checked)}
-              className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+              className="size-4 rounded-control text-navy-800 focus:ring-navy-500"
             />
           </label>
 

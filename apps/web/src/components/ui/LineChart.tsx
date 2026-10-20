@@ -14,12 +14,12 @@ export const LineChart: React.FC<LineChartProps> = ({
   minThreshold,
   thresholdLabel,
   className = '',
-  color = '#2563eb',
+  color = '#0d315c',
   unit = '%',
 }) => {
   if (!data || data.length === 0) {
     return (
-      <div className="h-32 flex items-center justify-center text-xs text-slate-400 italic">
+      <div className="h-32 flex items-center justify-center text-xs text-ink-faint italic">
         No trend records available
       </div>
     );
@@ -63,11 +63,11 @@ export const LineChart: React.FC<LineChartProps> = ({
 
   return (
     <div className={`w-full ${className}`}>
-      <div className="relative w-full aspect-[500/140]">
+      <div className="relative w-full aspect-500/140">
         <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible">
           <defs>
             <linearGradient id="lineAreaGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={color} stopOpacity="0.22" />
+              <stop offset="0%" stopColor={color} stopOpacity="0.2" />
               <stop offset="100%" stopColor={color} stopOpacity="0.0" />
             </linearGradient>
           </defs>
@@ -128,7 +128,7 @@ export const LineChart: React.FC<LineChartProps> = ({
                   x={cx}
                   y={cy - 8}
                   textAnchor="middle"
-                  fill="#0f172a"
+                  fill="#0d315c"
                   fontSize="10"
                   fontWeight="bold"
                   className="opacity-0 group-hover:opacity-100 transition-opacity duration-150"
@@ -154,3 +154,5 @@ export const LineChart: React.FC<LineChartProps> = ({
     </div>
   );
 };
+
+export default LineChart;

@@ -1,8 +1,10 @@
 import dotenv from 'dotenv';
 import path from 'path';
 
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+dotenv.config({ path: path.resolve(process.cwd(), '../.env') });
 dotenv.config({ path: path.resolve(process.cwd(), '../../.env') });
-dotenv.config(); // fallback to current dir .env
+dotenv.config();
 
 export const ENV = {
   PORT: parseInt(process.env.PORT || '5000', 10),
@@ -48,12 +50,18 @@ export const ENV = {
   SMTP_PORT: parseInt(process.env.SMTP_PORT || '587', 10),
   SMTP_USER: process.env.SMTP_USER || '',
   SMTP_PASS: process.env.SMTP_PASS || '',
-  SMTP_FROM: process.env.SMTP_FROM || 'Command Center <notifications@softwarehub2.org>',
+  SMTP_FROM: process.env.SMTP_FROM || 'Sri Ram <sriram@smru.edu.in>',
+  DEFAULT_SENDER_EMAIL: 'sriram@smru.edu.in',
+  DEFAULT_SENDER_NAME: 'Sri Ram — Software Hub',
 
   // Web-Push VAPID
   VAPID_PUBLIC_KEY: process.env.VAPID_PUBLIC_KEY || '',
   VAPID_PRIVATE_KEY: process.env.VAPID_PRIVATE_KEY || '',
   VAPID_SUBJECT: process.env.VAPID_SUBJECT || 'mailto:admin@softwarehub2.org',
+
+  // Microsoft Power Automate Webhook (No Entra ID / UI-Based HTTP Trigger)
+  POWER_AUTOMATE_WEBHOOK_URL: process.env.POWER_AUTOMATE_WEBHOOK_URL || '',
+  POWER_AUTOMATE_ENABLED: process.env.POWER_AUTOMATE_ENABLED === 'true' || Boolean(process.env.POWER_AUTOMATE_WEBHOOK_URL),
 
   // Uploads
   UPLOAD_DIR: process.env.UPLOAD_DIR || './uploads',

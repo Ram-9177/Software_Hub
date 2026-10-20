@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { db } from '../../config/database.js';
 import { USER_ROLES, INTERN_TYPES } from '@command-center/shared';
 import { hashPassword } from '../../config/security.js';
+import { revokeAllSessionsForUser } from '../../config/session.js';
 import { sendSystemNotification } from '../automations/emailService.js';
 
 export const MAX_ADMIN_LIMIT = 5;
@@ -222,7 +223,7 @@ export async function getUsers(req: Request, res: Response) {
       return {
         ...u,
         teamId: team?.teamId || null,
-        teamName: team?.teamName || (u.role === USER_ROLES.ADMIN || u.role === USER_ROLES.LEAD ? 'Central Office Administration' : 'Unassigned'),
+        teamName: team?.teamName || (u.role === USER_ROLES.ADMIN || u.role === USER_ROLES.LEAD ? 'Software Hub Administration' : 'Unassigned'),
         attendancePercentage: totalDays > 0 ? attendancePct : null,
         totalTasksAssigned: assignedParts.length,
         tasksCompleted: completedParts.length,
@@ -333,12 +334,14 @@ export async function createUser(req: Request, res: Response) {
   try {
     const roleDisplayName =
       role === USER_ROLES.ADMIN
-        ? 'Central Office Admin'
+        ? 'Software Hub Admin'
+        : role === USER_ROLES.MANAGER
+        ? 'Software Hub Manager'
         : role === USER_ROLES.LEAD
-        ? 'Co-Admin / Team Lead'
+        ? 'Software Hub Team Lead'
         : role === USER_ROLES.PAID_INTERN
-        ? 'Core Intern'
-        : 'Unpaid Intern';
+        ? 'Software Hub Paid Intern'
+        : 'Software Hub Intern';
 
     await sendSystemNotification({
       ruleKey: 'welcome_email',
@@ -433,7 +436,7 @@ export async function createBulkInterns(req: Request, res: Response) {
       recipientName: name,
       recipientUserId: newId,
       variables: {
-        recipient_role: role === USER_ROLES.PAID_INTERN ? 'Core Intern' : 'Unpaid Intern',
+        recipient_role: role === USER_ROLES.PAID_INTERN ? 'Software Hub Paid Intern' : 'Software Hub Intern',
       },
     }).catch(() => {});
 
@@ -469,8 +472,12 @@ export async function promoteIntern(req: Request, res: Response) {
   const currentUser = req.user!;
   const { internId, decision, notes } = req.body;
 
-  // Strict check: Only Admin and Lead can review levels
-  if (currentUser.role !== USER_ROLES.ADMIN && currentUser.role !== USER_ROLES.LEAD) {
+  // Strict check: Only Admin, Manager, and Lead can review levels
+  if (
+    currentUser.role !== USER_ROLES.ADMIN &&
+    currentUser.role !== USER_ROLES.MANAGER &&
+    currentUser.role !== USER_ROLES.LEAD
+  ) {
     return res.status(403).json({
       message: 'Access Denied: Only Admin and Co-Admin may review or approve level progression.',
     });
@@ -534,9 +541,26 @@ export async function promoteIntern(req: Request, res: Response) {
 export async function updateUser(req: Request, res: Response) {
   const currentUser = req.user!;
   const { id } = req.params;
-  const { name, email, phone, joiningDate, currentLevel, marksheetPercentage, status } = req.body;
+  const {
+    name,
+    email,
+    phone,
+    role,
+    internType,
+    teamId,
+    pairedPaidInternId,
+    joiningDate,
+    currentLevel,
+    marksheetPercentage,
+    marksheetConfirmed,
+    status,
+  } = req.body;
 
-  if (currentUser.role !== USER_ROLES.ADMIN && currentUser.role !== USER_ROLES.LEAD) {
+  if (
+    currentUser.role !== USER_ROLES.ADMIN &&
+    currentUser.role !== USER_ROLES.MANAGER &&
+    currentUser.role !== USER_ROLES.LEAD
+  ) {
     return res.status(403).json({ message: 'Only authorized administrators can modify member details.' });
   }
 
@@ -559,12 +583,33 @@ export async function updateUser(req: Request, res: Response) {
   if (name !== undefined) updatePayload.name = name;
   if (email !== undefined) updatePayload.email = email;
   if (phone !== undefined) updatePayload.phone = phone;
+  if (role !== undefined) updatePayload.role = role;
+  if (internType !== undefined) updatePayload.intern_type = internType;
+  if (pairedPaidInternId !== undefined) updatePayload.paired_paid_intern_id = pairedPaidInternId;
   if (joiningDate !== undefined) updatePayload.joining_date = joiningDate;
   if (currentLevel !== undefined) updatePayload.current_level = currentLevel;
   if (marksheetPercentage !== undefined) updatePayload.marksheet_percentage = marksheetPercentage;
+  if (marksheetConfirmed !== undefined) updatePayload.marksheet_confirmed = Boolean(marksheetConfirmed);
   if (status !== undefined) updatePayload.status = status;
 
   await db('users').where({ id }).update(updatePayload);
+
+  // Update team if provided
+  if (teamId !== undefined) {
+    await db('team_members').where({ user_id: id }).del();
+    if (teamId) {
+      await db('team_members').insert({
+        id: `tm-${id}-${Date.now()}`,
+        team_id: teamId,
+        user_id: id,
+      });
+    }
+  }
+
+  // A deactivated user is signed out at once
+  if (status === 'inactive') {
+    await revokeAllSessionsForUser(id);
+  }
 
   return res.json({ message: 'Member updated successfully', user: { ...user, ...updatePayload } });
 }

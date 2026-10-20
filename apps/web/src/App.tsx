@@ -2,7 +2,6 @@ import React, { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext.js';
 import { AppLayout } from './components/layout/AppLayout.js';
-import { ForcePasswordChangeModal } from './components/auth/ForcePasswordChangeModal.js';
 
 // Route-level Code Splitting for ultra-fast initial load (<1 second target)
 const HomeScreen = lazy(() => import('./screens/Home/HomeScreen.js'));
@@ -17,18 +16,20 @@ const AutomationsScreen = lazy(() => import('./screens/Automations/AutomationsSc
 const ProfileScreen = lazy(() => import('./screens/Profile/ProfileScreen.js'));
 const PublicVerifyScreen = lazy(() => import('./screens/PublicVerify/PublicVerifyScreen.js').then(m => ({ default: m.PublicVerifyScreen })));
 const LoginScreen = lazy(() => import('./screens/Login/LoginScreen.js'));
+const SignUpScreen = lazy(() => import('./screens/SignUp/SignUpScreen.js'));
+const VerifyEmailScreen = lazy(() => import('./screens/VerifyEmail/VerifyEmailScreen.js'));
 const AcceptInviteScreen = lazy(() => import('./screens/AcceptInvite/AcceptInviteScreen.js'));
 const ResetPasswordScreen = lazy(() => import('./screens/ResetPassword/ResetPasswordScreen.js'));
 
 const ScreenSkeleton: React.FC = () => (
   <div className="w-full max-w-7xl mx-auto space-y-4 animate-pulse p-4">
-    <div className="h-8 bg-slate-200 dark:bg-slate-800 rounded-xl w-48" />
+    <div className="h-10 bg-tint dark:bg-navy-900 rounded-card w-48 border border-line" />
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
       {[1, 2, 3, 4].map((i) => (
-        <div key={i} className="h-28 bg-slate-200 dark:bg-slate-800 rounded-2xl" />
+        <div key={i} className="h-28 bg-tint dark:bg-navy-900 rounded-card border border-line" />
       ))}
     </div>
-    <div className="h-64 bg-slate-200 dark:bg-slate-800 rounded-2xl" />
+    <div className="h-64 bg-tint dark:bg-navy-900 rounded-card border border-line" />
   </div>
 );
 
@@ -37,12 +38,12 @@ export const App: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-900 text-white gap-3">
-        <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center font-black text-lg animate-pulse">
-          CC
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-navy-950 text-white gap-3">
+        <div className="w-12 h-12 rounded-card bg-gold-400 text-navy-950 flex items-center justify-center font-display font-black text-xl shadow-card border-2 border-gold-300 animate-pulse">
+          SH
         </div>
-        <p className="text-xs font-semibold tracking-wider text-slate-400">
-          Loading Command Center...
+        <p className="text-xs font-mono font-bold tracking-widest uppercase text-navy-200">
+          CENTRAL OPERATIONS · SOFTWARE HUB
         </p>
       </div>
     );
@@ -57,6 +58,15 @@ export const App: React.FC = () => {
             path="/login"
             element={currentUser ? <Navigate to="/" replace /> : <LoginScreen />}
           />
+          <Route
+            path="/signup"
+            element={currentUser ? <Navigate to="/" replace /> : <SignUpScreen />}
+          />
+          <Route
+            path="/register"
+            element={currentUser ? <Navigate to="/" replace /> : <SignUpScreen />}
+          />
+          <Route path="/verify-email" element={<VerifyEmailScreen />} />
           <Route
             path="/accept-invite"
             element={currentUser ? <Navigate to="/" replace /> : <AcceptInviteScreen />}
@@ -95,9 +105,6 @@ export const App: React.FC = () => {
           )}
         </Routes>
       </Suspense>
-
-      {/* Forced Password Change Modal for Seeded Accounts */}
-      {currentUser && <ForcePasswordChangeModal />}
     </>
   );
 };

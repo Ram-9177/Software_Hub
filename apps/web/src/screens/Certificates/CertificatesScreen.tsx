@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiRequest } from '../../lib/api.js';
+import { apiRequest, API_BASE } from '../../lib/api.js';
 import { useAuth } from '../../contexts/AuthContext.js';
 import { Button } from '../../components/ui/Button.js';
 import { Badge } from '../../components/ui/Badge.js';
@@ -9,6 +9,7 @@ import { Modal } from '../../components/ui/Modal.js';
 import { Select } from '../../components/ui/Select.js';
 import { Input } from '../../components/ui/Input.js';
 import { useToast } from '../../components/ui/Toast.js';
+import { cn } from '../../components/ui/utils.js';
 import {
   Download,
   Award,
@@ -62,7 +63,7 @@ export const CertificatesScreen: React.FC = () => {
   // Ensure selectedInternId defaults to first valid intern
   React.useEffect(() => {
     if (!selectedInternId && users.length > 0) {
-      const firstIntern = users.find((u: any) => u.role !== USER_ROLES.ADMIN && u.role !== USER_ROLES.LEAD) || users[0];
+      const firstIntern = users.find((u: any) => u.role !== USER_ROLES.ADMIN && u.role !== USER_ROLES.MANAGER && u.role !== USER_ROLES.LEAD) || users[0];
       if (firstIntern) setSelectedInternId(firstIntern.id);
     }
   }, [users, selectedInternId]);
@@ -130,60 +131,77 @@ export const CertificatesScreen: React.FC = () => {
     },
   });
 
-  const isManagement = currentUser?.role === USER_ROLES.ADMIN || currentUser?.role === USER_ROLES.LEAD;
+  const isManagement =
+    currentUser?.role === USER_ROLES.ADMIN ||
+    currentUser?.role === USER_ROLES.MANAGER ||
+    currentUser?.role === USER_ROLES.LEAD;
 
   const currentIntern = users.find((u: any) => u.id === selectedInternId) || users[0];
   const activeTemplate = templates.find((t: any) => t.id === selectedTemplateId) || templates[0];
 
-  const internAtt = currentIntern?.attendancePercentage ?? 92;
-  const isAttMet = internAtt >= (activeTemplate?.min_attendance_percentage ?? 75);
+  // Live database calculation for attendance & eligibility
+  const { data: eligibilityData } = useQuery({
+    queryKey: ['certificate-eligibility', currentIntern?.id, activeTemplate?.min_level || 1],
+    queryFn: () =>
+      currentIntern?.id
+        ? apiRequest<any>(`/certificates/eligibility?internId=${currentIntern.id}&level=${activeTemplate?.min_level || 1}`).catch(() => null)
+        : null,
+    enabled: !!currentIntern?.id,
+  });
+
+  const internAtt = eligibilityData?.attendancePct ?? (currentIntern?.attendancePercentage ?? 0);
+  const isAttMet = eligibilityData?.attendanceMet ?? (internAtt >= (activeTemplate?.min_attendance_percentage ?? 75));
   const isMarksheetMet =
-    activeTemplate?.category === 'unpaid' ||
-    (Boolean(currentIntern?.marksheetConfirmed) && (currentIntern?.marksheetPercentage ?? 0) >= (activeTemplate?.min_marksheet_percentage ?? 80));
+    eligibilityData?.marksheetMet ??
+    (activeTemplate?.category === 'unpaid' ||
+      (Boolean(currentIntern?.marksheetConfirmed) && (currentIntern?.marksheetPercentage ?? 0) >= (activeTemplate?.min_marksheet_percentage ?? 80)));
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-12">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="space-y-5 max-w-7xl mx-auto pb-16">
+      {/* SMRU Institutional Executive Header Banner */}
+      <header className="min-w-0 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-card border border-line/70 bg-linear-to-r from-surface via-surface to-indigo-50/25 p-4 sm:p-5 shadow-card">
         <div>
           <div className="flex items-center gap-2">
-            <span className="p-1.5 rounded-lg bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">
-              <Award className="w-5 h-5" />
-            </span>
-            <h1 className="text-2xl font-black text-slate-900 dark:text-slate-100 tracking-tight">
+            <h1 className="text-xl sm:text-2xl font-display font-bold text-ink tracking-tight">
               Central Office Credential Registry
             </h1>
+            <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-accent-50 border border-accent-200/80 px-2.5 py-0.5 text-xs font-semibold text-accent-800">
+              <span className="size-1.5 rounded-full bg-accent-500 animate-pulse" />
+              SMRU Certified
+            </span>
           </div>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+          <p className="mt-1 text-xs sm:text-sm text-ink-soft">
             Official St. Mary’s Rehabilitation University credentials for Software Hub 2.0.
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
           {/* Tabs for Admin / Lead */}
           {isManagement && (
-            <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
+            <div className="flex bg-tint p-1 rounded-control border border-line text-xs font-semibold">
               <button
                 type="button"
                 onClick={() => setActiveTab('issued')}
-                className={`px-3 py-1.5 rounded-lg transition-all ${
+                className={cn(
+                  'px-3 py-1.5 rounded-control transition-all cursor-pointer',
                   activeTab === 'issued'
-                    ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                }`}
+                    ? 'bg-navy-800 text-white shadow-xs font-bold'
+                    : 'text-ink-soft hover:text-navy-800'
+                )}
               >
                 Issued Credentials ({certificates.length})
               </button>
               <button
                 type="button"
                 onClick={() => setActiveTab('templates')}
-                className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                className={cn(
+                  'px-3 py-1.5 rounded-control transition-all flex items-center gap-1.5 cursor-pointer',
                   activeTab === 'templates'
-                    ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                }`}
+                    ? 'bg-navy-800 text-white shadow-xs font-bold'
+                    : 'text-ink-soft hover:text-navy-800'
+                )}
               >
-                <Sliders className="w-3.5 h-3.5" />
+                <Sliders className="size-3.5" />
                 Templates & Rules ({templates.length})
               </button>
             </div>
@@ -216,7 +234,7 @@ export const CertificatesScreen: React.FC = () => {
             </>
           )}
         </div>
-      </div>
+      </header>
 
       {/* TAB 1: ISSUED CREDENTIALS */}
       {activeTab === 'issued' && (
@@ -238,15 +256,15 @@ export const CertificatesScreen: React.FC = () => {
                 </p>
               </Card>
 
-              <Card padding="md" className="border-t-4 border-t-blue-600 bg-linear-to-br from-blue-50/40 to-white dark:from-blue-950/20 dark:to-slate-900">
+              <Card padding="md" className="border-t-3 border-t-navy-800 bg-linear-to-br from-tint to-surface">
                 <div className="flex items-center justify-between mb-1.5">
-                  <Badge variant="info" size="sm">
+                  <Badge tone="navy" size="sm">
                     Core (Paid) Track
                   </Badge>
-                  <span className="text-[10px] font-bold text-slate-400 uppercase">Template #1</span>
+                  <span className="text-[10px] font-bold text-ink-faint uppercase">Template #1</span>
                 </div>
-                <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">Modern Central Office Design</h4>
-                <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                <h4 className="text-sm font-display font-bold text-ink">Modern Central Office Design</h4>
+                <p className="text-xs text-ink-soft mt-1">
                   Required: Attendance ≥ 75% · Marksheet ≥ 80% confirmed · Level 2–15.
                 </p>
               </Card>
@@ -286,27 +304,27 @@ export const CertificatesScreen: React.FC = () => {
                       {certificates.map((cert: any) => {
                         const isRevoked = cert.status === 'revoked';
                         return (
-                          <tr key={cert.id} className={`hover:bg-slate-50/50 dark:hover:bg-slate-800/40 ${isRevoked ? 'opacity-60 bg-rose-50/20' : ''}`}>
-                            <td className="py-3.5 px-4 font-mono font-bold text-blue-600 dark:text-blue-400">
+                          <tr key={cert.id} className={`hover:bg-tint transition-colors ${isRevoked ? 'opacity-60 bg-danger-50/20' : ''}`}>
+                            <td className="py-3.5 px-4 font-mono font-bold text-navy-800 dark:text-gold-300">
                               {cert.certificateNumber}
                               {cert.reissuedFrom && (
-                                <span className="block text-[10px] text-amber-600 font-normal">
+                                <span className="block text-[10px] text-gold-700 font-normal">
                                   Reissued from {cert.reissuedFrom}
                                 </span>
                               )}
                             </td>
                             <td className="py-3.5 px-4">
-                              <span className="font-bold text-slate-900 dark:text-slate-100 block">{cert.userName}</span>
-                              <span className="text-[11px] text-slate-400">{cert.userEmail}</span>
+                              <span className="font-bold text-ink block">{cert.userName}</span>
+                              <span className="text-[11px] text-ink-soft">{cert.userEmail}</span>
                             </td>
                             <td className="py-3.5 px-4">
-                              <Badge variant={cert.category === 'paid' ? 'info' : 'warning'} size="sm">
+                              <Badge tone={cert.category === 'paid' ? 'navy' : 'gold'} size="sm">
                                 {cert.category === 'paid' ? 'Paid Track' : 'Unpaid Track'} (L{cert.level})
                               </Badge>
                             </td>
-                            <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400">{cert.issueDate}</td>
+                            <td className="py-3.5 px-4 text-ink-soft">{cert.issueDate}</td>
                             <td className="py-3.5 px-4">
-                              <Badge variant={isRevoked ? 'danger' : 'success'} size="sm">
+                              <Badge tone={isRevoked ? 'danger' : 'success'} size="sm">
                                 {isRevoked ? 'Revoked' : 'Verified'}
                               </Badge>
                             </td>
@@ -316,29 +334,29 @@ export const CertificatesScreen: React.FC = () => {
                                   href={`/verify/${cert.certificateNumber}`}
                                   target="_blank"
                                   rel="noreferrer"
-                                  className="inline-flex items-center gap-1 text-[11px] text-slate-600 dark:text-slate-400 hover:text-blue-600 font-semibold px-2 py-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800"
+                                  className="inline-flex items-center gap-1 text-[11px] text-ink-soft hover:text-navy-800 font-semibold px-2 py-1 rounded-control hover:bg-tint"
                                   title="View Public Verification Page"
                                 >
-                                  <ExternalLink className="w-3.5 h-3.5" /> Verify
+                                  <ExternalLink className="size-3.5" /> Verify
                                 </a>
                                 {!isRevoked && (
                                   <a
-                                    href={`/api/certificates/${cert.certificateNumber}/pdf`}
+                                    href={`${API_BASE}/certificates/${cert.certificateNumber}/pdf`}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="inline-flex items-center gap-1 text-[11px] text-blue-600 dark:text-blue-400 hover:text-blue-700 font-semibold px-2 py-1 rounded-md bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100"
+                                    className="inline-flex items-center gap-1 text-[11px] text-navy-800 font-semibold px-2 py-1 rounded-control bg-tint border border-navy-200/60 hover:bg-navy-100"
                                   >
-                                    <Download className="w-3.5 h-3.5" /> PDF
+                                    <Download className="size-3.5" /> PDF
                                   </a>
                                 )}
                                 {isManagement && !isRevoked && (
                                   <button
                                     type="button"
                                     onClick={() => setReissueTarget(cert)}
-                                    className="inline-flex items-center gap-1 text-[11px] text-amber-600 hover:text-amber-700 font-semibold px-2 py-1 rounded-md hover:bg-amber-50 dark:hover:bg-amber-950/30"
+                                    className="inline-flex items-center gap-1 text-[11px] text-gold-700 hover:text-gold-900 font-semibold px-2 py-1 rounded-control hover:bg-gold-50 cursor-pointer"
                                     title="Reissue this certificate"
                                   >
-                                    <RefreshCw className="w-3.5 h-3.5" /> Reissue
+                                    <RefreshCw className="size-3.5" /> Reissue
                                   </button>
                                 )}
                               </div>
@@ -356,12 +374,12 @@ export const CertificatesScreen: React.FC = () => {
           {/* Right Column: Pre-Issuance Inspector & Graphic Preview */}
           <div className="lg:col-span-5 space-y-6">
             {isManagement && (
-              <Card padding="md" className="border-t-4 border-t-blue-600">
+              <Card padding="md" className="border-t-3 border-t-navy-800">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                  <h3 className="text-sm font-display font-bold text-ink">
                     Candidate Pre-Issuance Verification
                   </h3>
-                  <Badge variant="info" size="sm">
+                  <Badge tone={activeTemplate?.category === 'paid' ? 'navy' : 'gold'} size="sm">
                     {activeTemplate?.category === 'paid' ? 'Paid Track' : 'Unpaid Track'}
                   </Badge>
                 </div>
@@ -452,38 +470,83 @@ export const CertificatesScreen: React.FC = () => {
               </div>
 
               {/* Graphical Card rendering background template with overlay */}
-              <div className="relative rounded-xl overflow-hidden border-2 border-slate-200 dark:border-slate-700 shadow-md aspect-16/11 bg-slate-900 group">
+              <div className="relative rounded-xl overflow-hidden border-2 border-line shadow-md aspect-16/11 bg-slate-900 group select-none">
                 <img
-                  src={activeTemplate?.background_image_path || '/assets/cert_paid_template.jpg'}
+                  src={activeTemplate?.background_image_path || (activeTemplate?.category === 'paid' ? '/assets/cert_paid_template.jpg' : '/assets/cert_unpaid_template.jpg')}
                   alt="Certificate Template"
-                  className="w-full h-full object-cover opacity-90 group-hover:scale-102 transition-transform duration-300"
+                  className="w-full h-full object-cover opacity-95 group-hover:scale-101 transition-transform duration-300"
                 />
                 
                 {/* Live Data Overlays on the real template */}
-                <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center pointer-events-none">
-                  <div className="mt-8">
-                    <span className="text-xl sm:text-2xl font-black text-slate-950 tracking-tight drop-shadow-xs block">
+                <div className="absolute inset-0 pointer-events-none text-slate-900">
+                  {/* Recipient Name centered right above line */}
+                  <div className={`absolute w-full text-center ${activeTemplate?.category === 'paid' ? 'top-[47%]' : 'top-[46%]'}`}>
+                    <span className="text-sm sm:text-base md:text-xl font-black text-navy-950 uppercase tracking-wide drop-shadow-xs px-4">
                       {currentIntern?.name || 'Intern Recipient Name'}
                     </span>
-                    <span className="text-[10px] sm:text-xs text-slate-800 font-semibold block mt-1">
-                      {activeTemplate?.category === 'paid'
-                        ? 'Core Software Engineering Track'
-                        : 'Unpaid Internship Programme'} · Level {currentIntern?.current_level || 1}
-                    </span>
                   </div>
 
-                  <div className="absolute bottom-6 left-6 text-left">
-                    <span className="font-mono text-[9px] text-slate-800 font-bold block">
-                      ID: SH2-L{currentIntern?.current_level || 1}-PREVIEW
-                    </span>
-                    <span className="text-[8px] text-slate-600 block">
-                      {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                    </span>
-                  </div>
-
-                  <div className="absolute bottom-6 right-6 p-1 bg-white rounded shadow-xs">
-                    <QrCode className="w-8 h-8 text-slate-900" />
-                  </div>
+                  {activeTemplate?.category === 'paid' ? (
+                    <>
+                      {/* Designation */}
+                      <span className="absolute left-[30%] top-[76%] text-[9px] sm:text-[11px] font-bold text-slate-900">
+                        Core Software Engineering Intern
+                      </span>
+                      {/* Level */}
+                      <span className="absolute left-[75%] top-[76%] text-[9px] sm:text-[11px] font-bold text-slate-900">
+                        Level {currentIntern?.currentLevel || 2}
+                      </span>
+                      {/* Period */}
+                      <span className="absolute left-[36%] top-[85%] text-[8px] sm:text-[10px] font-bold text-slate-800">
+                        01 Aug 2026 – {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                      </span>
+                      {/* Date of Issue */}
+                      <span className="absolute left-[81%] top-[85%] text-[8px] sm:text-[10px] font-bold text-slate-800">
+                        {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                      </span>
+                      {/* Signatory */}
+                      <span className="absolute left-[40%] top-[95%] text-[8px] sm:text-[10px] font-bold text-slate-800">
+                        {activeTemplate?.authorized_signatory || 'Director, Central Office, SMRU'}
+                      </span>
+                      {/* QR verification badge */}
+                      <div className="absolute bottom-[2%] right-[5%] flex flex-col items-center p-0.5 bg-white/90 rounded shadow-xs">
+                        <QrCode className="size-5 sm:size-7 text-slate-900" />
+                        <span className="font-mono text-[7px] text-slate-700 font-bold">
+                          SH2-L{currentIntern?.currentLevel || 2}-REG
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      {/* Designation */}
+                      <span className="absolute left-[23%] top-[71%] text-[9px] sm:text-[11px] font-bold text-slate-900">
+                        Foundational Central Office Intern
+                      </span>
+                      {/* Level */}
+                      <span className="absolute left-[70%] top-[71%] text-[9px] sm:text-[11px] font-bold text-slate-900">
+                        Level {currentIntern?.currentLevel || 1}
+                      </span>
+                      {/* Period */}
+                      <span className="absolute left-[26%] top-[79%] text-[8px] sm:text-[10px] font-bold text-slate-800">
+                        01 Sep 2026 – {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                      </span>
+                      {/* Date of Issue */}
+                      <span className="absolute left-[23%] top-[88%] text-[8px] sm:text-[10px] font-bold text-slate-800">
+                        {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                      </span>
+                      {/* Signatory */}
+                      <span className="absolute left-[30%] top-[96%] text-[8px] sm:text-[10px] font-bold text-slate-800">
+                        {activeTemplate?.authorized_signatory || 'Lead & Director, Central Office, SMRU'}
+                      </span>
+                      {/* QR verification badge */}
+                      <div className="absolute bottom-[6%] right-[11%] flex flex-col items-center p-1 bg-white/95 rounded shadow-xs">
+                        <QrCode className="size-6 sm:size-8 text-slate-900" />
+                        <span className="font-mono text-[7px] text-slate-700 font-bold mt-0.5">
+                          SH2-L{currentIntern?.currentLevel || 1}-REG
+                        </span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -607,9 +670,9 @@ export const CertificatesScreen: React.FC = () => {
                 id="templateActive"
                 checked={editingTemplate.is_active}
                 onChange={(e) => setEditingTemplate({ ...editingTemplate, is_active: e.target.checked })}
-                className="w-4 h-4 text-blue-600 rounded"
+                className="size-4 text-navy-800 rounded-control focus:ring-navy-500"
               />
-              <label htmlFor="templateActive" className="text-xs text-slate-700 dark:text-slate-300 font-medium">
+              <label htmlFor="templateActive" className="text-xs text-ink font-medium">
                 Template is active and available for issuance
               </label>
             </div>

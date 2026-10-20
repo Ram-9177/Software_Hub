@@ -1,53 +1,79 @@
-import React from 'react';
-import { Button } from './Button.js';
+import React, { type ElementType, type ReactNode } from 'react';
+import type { LucideIcon } from 'lucide-react';
+import { Button } from './Button';
+import { cn } from './utils';
 
 export interface EmptyStateProps {
-  icon?: React.ReactNode;
-  title: string;
-  description: string;
+  icon?: LucideIcon | ReactNode;
+  title: ReactNode;
+  description?: ReactNode;
+  action?: ReactNode;
   actionLabel?: string;
   onAction?: () => void;
   secondaryActionLabel?: string;
   onSecondaryAction?: () => void;
+  compact?: boolean;
+  titleAs?: 'p' | 'h1' | 'h2' | 'h3';
   className?: string;
 }
 
-export const EmptyState: React.FC<EmptyStateProps> = ({
+export function EmptyState({
   icon,
   title,
   description,
+  action,
   actionLabel,
   onAction,
   secondaryActionLabel,
   onSecondaryAction,
-  className = '',
-}) => {
+  compact = false,
+  titleAs: Title = 'p',
+  className,
+}: EmptyStateProps) {
+  const renderIcon = () => {
+    if (!icon) return null;
+    if (React.isValidElement(icon)) return icon;
+    const IconComp = icon as unknown as LucideIcon;
+    if (typeof IconComp === 'function' || typeof IconComp === 'object') {
+      return <IconComp aria-hidden className={compact ? 'size-5' : 'size-7'} />;
+    }
+    return null;
+  };
+
   return (
     <div
-      className={`flex flex-col items-center justify-center p-8 sm:p-12 text-center rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/40 backdrop-blur-xs ${className}`}
+      className={cn(
+        'flex flex-col items-center text-center select-none',
+        compact ? 'gap-2 px-4 py-6' : 'gap-3 px-6 py-10 sm:py-12',
+        className
+      )}
     >
       {icon && (
-        <div className="w-14 h-14 rounded-2xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center mb-4 shadow-xs border border-blue-100 dark:border-blue-900/60">
-          {icon}
-        </div>
+        <span
+          className={cn(
+            'flex items-center justify-center rounded-full bg-tint text-navy-700 shadow-xs border border-navy-200/50',
+            compact ? 'size-10' : 'size-14'
+          )}
+        >
+          {renderIcon()}
+        </span>
       )}
-
-      <h3 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">
-        {title}
-      </h3>
-      <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mt-1 mb-6 leading-relaxed">
-        {description}
-      </p>
-
-      {(actionLabel || secondaryActionLabel) && (
-        <div className="flex flex-wrap items-center justify-center gap-3">
+      <div className="max-w-md">
+        <Title className={cn('font-display font-semibold text-navy-800 dark:text-white', compact ? 'text-sm sm:text-base' : 'text-base sm:text-lg')}>
+          {title}
+        </Title>
+        {description && <div className="mt-1 text-xs sm:text-sm text-ink-soft leading-relaxed">{description}</div>}
+      </div>
+      {(action || actionLabel || secondaryActionLabel) && (
+        <div className="mt-2 flex flex-wrap justify-center items-center gap-2.5">
+          {action}
           {actionLabel && onAction && (
             <Button size="sm" onClick={onAction}>
               {actionLabel}
             </Button>
           )}
           {secondaryActionLabel && onSecondaryAction && (
-            <Button variant="outline" size="sm" onClick={onSecondaryAction}>
+            <Button variant="secondary" size="sm" onClick={onSecondaryAction}>
               {secondaryActionLabel}
             </Button>
           )}
@@ -55,4 +81,6 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
       )}
     </div>
   );
-};
+}
+
+export default EmptyState;

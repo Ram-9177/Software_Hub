@@ -45,7 +45,8 @@ export async function sendEmail({
     console.log(`[Email Dispatch] Sent to ${to} | Subject: "${subject}" | MessageId: ${info.messageId}`);
     return { success: true, messageId: info.messageId };
   } catch (error: any) {
-    console.warn(`[Email Dispatch] Mock delivery to ${to} | Subject: "${subject}" (SMTP simulated)`);
-    return { success: true, messageId: 'mock-msg-id' };
+    console.error(`[Email Dispatch] Failed to deliver email to ${to} | Subject: "${subject}":`, error?.message || error);
+    return { success: false, error: error?.message || 'SMTP delivery failed' };
   }
 }
+

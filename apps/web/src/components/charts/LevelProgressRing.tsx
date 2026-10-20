@@ -28,7 +28,7 @@ export const LevelProgressRing: React.FC<LevelProgressRingProps> = ({
           cx={size / 2}
           cy={size / 2}
           r={radius}
-          stroke="#e2e8f0"
+          stroke="#e8eef5"
           strokeWidth={strokeWidth}
           fill="none"
         />
@@ -37,7 +37,7 @@ export const LevelProgressRing: React.FC<LevelProgressRingProps> = ({
           cx={size / 2}
           cy={size / 2}
           r={radius}
-          stroke="#2563eb"
+          stroke="#ffaf3a"
           strokeWidth={strokeWidth}
           strokeDasharray={circumference}
           strokeDashoffset={strokeDashoffset}
@@ -47,8 +47,8 @@ export const LevelProgressRing: React.FC<LevelProgressRingProps> = ({
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-        <span className="text-sm font-extrabold text-blue-600 leading-none">{currentLevel}</span>
-        <span className="text-[9px] text-slate-400 font-semibold leading-none mt-0.5">of {totalLevels}</span>
+        <span className="text-sm font-display font-black text-navy-950 dark:text-gold-400 leading-none">{currentLevel}</span>
+        <span className="text-[9px] text-navy-400 font-mono font-semibold leading-none mt-0.5">of {totalLevels}</span>
       </div>
     </div>
   );

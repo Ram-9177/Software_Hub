@@ -4,6 +4,8 @@ import dotenv from 'dotenv';
 import path from 'path';
 import crypto from 'crypto';
 
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+dotenv.config({ path: path.resolve(process.cwd(), '../.env') });
 dotenv.config({ path: path.resolve(process.cwd(), '../../.env') });
 dotenv.config();
 
@@ -37,6 +39,8 @@ export async function seed(knex: Knex): Promise<void> {
   const suryaId = 'u-core-surya';
   const anaaliaId = 'u-intern-anaalia';
 
+  // In production / live app, ONLY the Super Admin (sriram@smru.edu.in) is seeded.
+  // All other users (Manager, Lead, Paid Intern, Unpaid Intern) are created dynamically via user creation / invites.
   const seedUsers = [
     {
       id: 'u-admin-sriram',
@@ -49,39 +53,43 @@ export async function seed(knex: Knex): Promise<void> {
       marksheetConfirmed: true,
       pairedId: null,
     },
-    {
-      id: 'u-lead-sheshi',
-      name: 'Sheshi',
-      email: 'sheshitejs@gmail.com',
-      password: coadminPass,
-      role: 'lead',
-      internType: null,
-      level: 10,
-      marksheetConfirmed: true,
-      pairedId: null,
-    },
-    {
-      id: suryaId,
-      name: 'Surya',
-      email: 'gundasurya600@gmail.com',
-      password: corePass,
-      role: 'paid_intern',
-      internType: 'paid',
-      level: 5,
-      marksheetConfirmed: true,
-      pairedId: null,
-    },
-    {
-      id: anaaliaId,
-      name: 'Anaalia',
-      email: 'anaalia092@gmail.com',
-      password: internPass,
-      role: 'unpaid_intern',
-      internType: 'unpaid',
-      level: 1,
-      marksheetConfirmed: false,
-      pairedId: suryaId, // Paired to Surya
-    },
+    ...(isTest
+      ? [
+          {
+            id: 'u-lead-sheshi',
+            name: 'Sheshi',
+            email: 'sheshitejs@gmail.com',
+            password: coadminPass,
+            role: 'lead',
+            internType: null,
+            level: 10,
+            marksheetConfirmed: true,
+            pairedId: null,
+          },
+          {
+            id: suryaId,
+            name: 'Surya',
+            email: 'gundasurya600@gmail.com',
+            password: corePass,
+            role: 'paid_intern',
+            internType: 'paid',
+            level: 5,
+            marksheetConfirmed: true,
+            pairedId: null,
+          },
+          {
+            id: anaaliaId,
+            name: 'Anaalia',
+            email: 'anaalia092@gmail.com',
+            password: internPass,
+            role: 'unpaid_intern',
+            internType: 'unpaid',
+            level: 1,
+            marksheetConfirmed: false,
+            pairedId: suryaId,
+          },
+        ]
+      : []),
   ];
 
   for (const u of seedUsers) {
@@ -109,7 +117,7 @@ export async function seed(knex: Knex): Promise<void> {
         token_version: 1,
         failed_login_attempts: 0,
         locked_until: null,
-        must_change_password: true,
+        must_change_password: false,
         ics_token: icsToken,
         created_at: new Date(),
         updated_at: new Date(),
@@ -127,7 +135,7 @@ export async function seed(knex: Knex): Promise<void> {
       };
       if (passwordHash) {
         updateData.password_hash = passwordHash;
-        updateData.must_change_password = true;
+        updateData.must_change_password = false;
       }
       await knex('users')
         .where({ id: existing.id })

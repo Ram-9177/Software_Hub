@@ -25,16 +25,16 @@ export const WeeklyTasksBarChart: React.FC<WeeklyTasksBarChartProps> = ({
 
         return (
           <div key={item.week} className="flex-1 flex flex-col items-center h-full justify-end group">
-            <span className="text-xs font-bold text-slate-800 mb-1 group-hover:text-blue-600 transition-colors">
+            <span className="text-xs font-display font-bold text-navy-950 dark:text-navy-100 mb-1 group-hover:text-gold-600 transition-colors">
               {item.count}
             </span>
-            <div className="w-full max-w-[34px] bg-slate-100 rounded-t-md h-full flex items-end overflow-hidden">
+            <div className="w-full max-w-8.5 bg-tint dark:bg-navy-800 rounded-t-md h-full flex items-end overflow-hidden">
               <div
                 style={{ height: `${heightPct}%` }}
-                className="w-full bg-blue-600 rounded-t-md transition-all duration-300 group-hover:bg-blue-700"
+                className="w-full bg-navy-900 dark:bg-gold-400 rounded-t-md transition-all duration-300 group-hover:bg-gold-500"
               />
             </div>
-            <span className="text-[11px] font-medium text-slate-500 mt-2">{item.week}</span>
+            <span className="text-[11px] font-mono font-medium text-navy-500 dark:text-navy-400 mt-2">{item.week}</span>
           </div>
         );
       })}

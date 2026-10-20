@@ -55,7 +55,7 @@ export async function runDueTomorrowJob(): Promise<number> {
   for (const part of parts) {
     const idempotencyKey = `due_tomorrow:${part.partId}:${todayStr}`;
     await sendSystemNotification({
-      ruleKey: 'due_tomorrow',
+      ruleKey: 'due_tomorrow_reminder',
       recipientEmail: part.userEmail,
       recipientName: part.userName,
       recipientUserId: part.userId,
@@ -175,7 +175,7 @@ export async function runNotCheckedInJob(): Promise<number> {
   // 2. Send missing check-ins list to leaders and admins
   if (missingInterns.length > 0) {
     const leaders = await db('users')
-      .whereIn('role', [USER_ROLES.ADMIN, USER_ROLES.LEAD])
+      .whereIn('role', [USER_ROLES.ADMIN, USER_ROLES.MANAGER, USER_ROLES.LEAD])
       .where({ status: 'active' });
 
     const missingNames = missingInterns.map((i) => i.name).join(', ');
@@ -219,7 +219,7 @@ export async function runMonthEndReviewJob(): Promise<number> {
   if (!locked) return 0;
 
   const leaders = await db('users')
-    .whereIn('role', [USER_ROLES.ADMIN, USER_ROLES.LEAD])
+    .whereIn('role', [USER_ROLES.ADMIN, USER_ROLES.MANAGER, USER_ROLES.LEAD])
     .where({ status: 'active' });
 
   let sent = 0;
@@ -267,7 +267,7 @@ export async function runWeeklySummaryJob(): Promise<number> {
   const avgAtt = attendances.length > 0 ? Math.round((presentCount / attendances.length) * 100) : 100;
 
   const leaders = await db('users')
-    .whereIn('role', [USER_ROLES.ADMIN, USER_ROLES.LEAD])
+    .whereIn('role', [USER_ROLES.ADMIN, USER_ROLES.MANAGER, USER_ROLES.LEAD])
     .where({ status: 'active' });
 
   let sent = 0;

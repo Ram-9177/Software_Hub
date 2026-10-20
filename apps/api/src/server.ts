@@ -4,6 +4,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import path from 'path';
 import fs from 'fs';
+import { fileURLToPath } from 'url';
 import { ENV } from './config/env.js';
 import { db } from './config/database.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -35,12 +36,30 @@ app.use(
     crossOriginResourcePolicy: { policy: 'cross-origin' },
   })
 );
-app.use(
-  cors({
-    origin: [ENV.CLIENT_ORIGIN, 'http://localhost:5173', 'http://127.0.0.1:5173'],
-    credentials: true,
-  })
-);
+const corsOptions: cors.CorsOptions = {
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    const allowed = [
+      ENV.CLIENT_ORIGIN,
+      'http://localhost:5173',
+      'http://127.0.0.1:5173',
+      'http://localhost:5000',
+      'http://127.0.0.1:5000',
+      'http://localhost:5001',
+      'http://127.0.0.1:5001',
+    ];
+    if (allowed.some((a) => a && origin.startsWith(a.replace(/\/$/, '')))) {
+      return callback(null, true);
+    }
+    return callback(null, true);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 app.use(compression());
 app.use(cookieParser());
 app.use(express.json());
@@ -68,7 +87,6 @@ app.use('/api/automations', automationRoutes);
 app.use('/api/exports', exportRoutes);
 app.use('/api/notifications', notificationRoutes);
 
-
 // Health check
 app.get('/api/health', async (_req, res) => {
   res.json({
@@ -76,6 +94,28 @@ app.get('/api/health', async (_req, res) => {
     timestamp: new Date().toISOString(),
     env: ENV.NODE_ENV,
   });
+});
+
+// Static frontend serving in production or when client dist exists
+const distCandidates = [
+  path.resolve(process.cwd(), '../web/dist'),
+  path.resolve(process.cwd(), 'apps/web/dist'),
+];
+const clientDist = distCandidates.find((d) => fs.existsSync(d) && fs.existsSync(path.join(d, 'index.html')));
+
+if (clientDist) {
+  app.use(express.static(clientDist));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/uploads') || req.path.startsWith('/socket.io')) {
+      return next();
+    }
+    res.sendFile(path.join(clientDist, 'index.html'));
+  });
+}
+
+// Ensure unmatched API routes return clean JSON 404 instead of HTML or 405
+app.all('/api/*', (_req, res) => {
+  res.status(404).json({ message: 'API route not found' });
 });
 
 // Error handling middleware
@@ -90,9 +130,28 @@ import { initScheduler } from './modules/automations/scheduler.js';
 export async function startServer() {
   try {
     console.log('[Database] Checking schema and migrations...');
+    const currentDir = path.dirname(fileURLToPath(import.meta.url));
+    const candidateDirs = [
+      path.resolve(currentDir, 'db/migrations'),
+      path.resolve(currentDir, '../src/db/migrations'),
+      path.resolve(process.cwd(), 'apps/api/src/db/migrations'),
+      path.resolve(process.cwd(), 'src/db/migrations'),
+    ];
+    const migrationsDir = candidateDirs.find((d) => fs.existsSync(d)) || candidateDirs[0];
+
+    const candidateSeedDirs = [
+      path.resolve(currentDir, 'db/seeds'),
+      path.resolve(currentDir, '../src/db/seeds'),
+      path.resolve(process.cwd(), 'apps/api/src/db/seeds'),
+      path.resolve(process.cwd(), 'src/db/seeds'),
+    ];
+    const seedsDir = candidateSeedDirs.find((d) => fs.existsSync(d)) || candidateSeedDirs[0];
+
+    const isCompiled = currentDir.includes('dist');
     // Ensure migrations are up to date
     await db.migrate.latest({
-      directory: path.resolve(process.cwd(), 'src/db/migrations'),
+      directory: migrationsDir,
+      loadExtensions: isCompiled ? ['.js'] : ['.ts'],
     });
     console.log('[Database] Migrations up to date.');
 
@@ -101,7 +160,8 @@ export async function startServer() {
     if (!userCount || Number(userCount.count) === 0) {
       console.log('[Database] Seeding initial admin from specification...');
       await db.seed.run({
-        directory: path.resolve(process.cwd(), 'src/db/seeds'),
+        directory: seedsDir,
+        loadExtensions: isCompiled ? ['.js'] : ['.ts'],
       });
       console.log('[Database] Seed completed successfully.');
     }

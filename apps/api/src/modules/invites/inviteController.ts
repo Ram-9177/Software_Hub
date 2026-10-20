@@ -15,17 +15,25 @@ import { USER_ROLES, type UserRole, type InternType } from '@command-center/shar
  */
 export function canInviteRole(inviterRole: UserRole, targetRole: UserRole): boolean {
   if (inviterRole === USER_ROLES.ADMIN) {
-    return true; // Admin can invite any role
+    return true; // Super Admin can invite any role
+  }
+  if (inviterRole === USER_ROLES.MANAGER) {
+    // Manager can invite Team Leads and Interns
+    return (
+      targetRole === USER_ROLES.LEAD ||
+      targetRole === USER_ROLES.PAID_INTERN ||
+      targetRole === USER_ROLES.UNPAID_INTERN
+    );
   }
   if (inviterRole === USER_ROLES.LEAD) {
     // Team lead can invite interns (paid or unpaid)
     return targetRole === USER_ROLES.PAID_INTERN || targetRole === USER_ROLES.UNPAID_INTERN;
   }
-  if (inviterRole === USER_ROLES.PAID_INTERN) {
-    // Core intern can invite unpaid interns only
+  if (inviterRole === USER_ROLES.PAID_INTERN || inviterRole === USER_ROLES.UNPAID_INTERN) {
+    // Interns can invite peer unpaid interns
     return targetRole === USER_ROLES.UNPAID_INTERN;
   }
-  return false; // Unpaid interns cannot invite anyone
+  return false;
 }
 
 /**
@@ -159,7 +167,7 @@ export async function createInvite(req: Request, res: Response) {
       variables: {
         invite_link: inviteLink,
         role: targetRole,
-        inviter_name: (req.user as any)?.name || 'Central Office Admin',
+        inviter_name: (req.user as any)?.name || 'Software Hub Admin',
       },
     });
   } catch (err) {
@@ -308,7 +316,7 @@ export async function resendInvite(req: Request, res: Response) {
       variables: {
         invite_link: inviteLink,
         role: invite.role,
-        inviter_name: (req.user as any)?.name || 'Central Office Admin',
+        inviter_name: (req.user as any)?.name || 'Software Hub Admin',
       },
     });
   } catch (err) {
@@ -565,8 +573,23 @@ export async function acceptInvite(req: Request, res: Response) {
     { ip: req.ip, userAgent: req.headers['user-agent'] }
   );
 
+  // Dispatch Welcome Onboarding notification
+  if (user?.email) {
+    sendSystemNotification({
+      ruleKey: 'welcome_email',
+      recipientEmail: user.email,
+      recipientName: user.name,
+      recipientUserId: user.id,
+      variables: {
+        recipient_name: user.name,
+        recipient_role: user.role,
+        action_url: `${ENV.CLIENT_ORIGIN || 'http://localhost:5173'}/login`,
+      },
+    }).catch((err) => console.warn('[InviteAcceptedEmail] Error dispatching welcome email:', err));
+  }
+
   return res.json({
-    message: 'Welcome to Command Center! Account setup successfully.',
+    message: 'Welcome to Software Hub! Account setup successfully.',
     accessToken: session.accessToken,
     refreshToken: session.refreshToken,
     user: {

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   getTodayAttendance,
+  getAttendanceStats,
   getRegister,
   checkIn,
   checkOut,
@@ -20,6 +21,7 @@ const router = Router();
 router.use(authenticateToken);
 
 router.get('/today', getTodayAttendance);
+router.get('/stats', getAttendanceStats);
 router.get('/register', getRegister);
 router.post('/check-in', checkIn);
 router.post('/check-out', checkOut);
@@ -28,6 +30,6 @@ router.get('/rules', getAttendanceRules);
 router.put('/rules', requireRole(USER_ROLES.ADMIN), validateBody(updateAttendanceRulesSchema), updateAttendanceRules);
 router.get('/leave', getLeaveRequests);
 router.post('/leave', validateBody(requestLeaveSchema), requestLeave);
-router.post('/leave/:id/review', requireRole(USER_ROLES.ADMIN, USER_ROLES.LEAD), reviewLeaveRequest);
+router.post('/leave/:id/review', requireRole(USER_ROLES.ADMIN, USER_ROLES.MANAGER, USER_ROLES.LEAD), reviewLeaveRequest);
 
 export default router;

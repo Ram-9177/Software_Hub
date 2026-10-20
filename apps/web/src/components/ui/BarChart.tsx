@@ -14,50 +14,44 @@ export const BarChart: React.FC<BarChartProps> = ({
   data,
   maxValue,
   className = '',
-  primaryColor = '#2563eb',
-  secondaryColor = '#ef4444',
-  primaryLabel = 'Primary',
-  secondaryLabel = 'Secondary',
+  primaryColor = '#0d315c',
+  secondaryColor = '#ffaf3a',
+  primaryLabel = 'Total',
+  secondaryLabel = 'Completed',
 }) => {
   if (!data || data.length === 0) {
     return (
-      <div className="h-32 flex items-center justify-center text-xs text-slate-400 italic">
-        No bar metrics recorded
+      <div className="h-32 flex items-center justify-center text-xs text-ink-faint italic">
+        No workload distribution available
       </div>
     );
   }
 
   const height = 140;
   const width = 500;
-  const paddingX = 30;
-  const paddingTop = 15;
+  const paddingX = 25;
+  const paddingTop = 20;
   const paddingBottom = 25;
 
   const innerWidth = width - paddingX * 2;
   const innerHeight = height - paddingTop - paddingBottom;
 
-  const computedMax =
-    maxValue ??
-    Math.max(
-      1,
-      ...data.map((d) => Math.max(d.value, d.secondaryValue ?? 0))
-    );
-
+  const computedMax = maxValue || Math.max(...data.map((d) => Math.max(d.value, d.secondaryValue ?? 0)), 10);
   const groupWidth = innerWidth / data.length;
   const hasSecondary = data.some((d) => d.secondaryValue !== undefined);
-  const barWidth = hasSecondary ? Math.min(22, groupWidth * 0.35) : Math.min(32, groupWidth * 0.6);
+  const barWidth = hasSecondary ? Math.min(14, groupWidth / 3) : Math.min(22, groupWidth / 2);
 
   return (
     <div className={`w-full ${className}`}>
-      <div className="relative w-full aspect-[500/140]">
+      <div className="relative w-full aspect-500/140">
         <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible">
-          {/* Subtle Grid Lines */}
+          {/* Baseline and grid lines */}
           <line
             x1={paddingX}
             y1={paddingTop}
             x2={width - paddingX}
             y2={paddingTop}
-            stroke="#e2e8f0"
+            stroke="#e8eef5"
             strokeDasharray="3 3"
           />
           <line
@@ -65,7 +59,7 @@ export const BarChart: React.FC<BarChartProps> = ({
             y1={paddingTop + innerHeight / 2}
             x2={width - paddingX}
             y2={paddingTop + innerHeight / 2}
-            stroke="#e2e8f0"
+            stroke="#e8eef5"
             strokeDasharray="3 3"
           />
           <line
@@ -96,7 +90,7 @@ export const BarChart: React.FC<BarChartProps> = ({
                     y={primaryY}
                     width={barWidth}
                     height={Math.max(2, primaryHeight)}
-                    rx={3}
+                    rx={2}
                     fill={primaryColor}
                   />
                   <rect
@@ -104,7 +98,7 @@ export const BarChart: React.FC<BarChartProps> = ({
                     y={secY}
                     width={barWidth}
                     height={Math.max(2, secHeight)}
-                    rx={3}
+                    rx={2}
                     fill={secondaryColor}
                   />
                   <text
@@ -128,14 +122,14 @@ export const BarChart: React.FC<BarChartProps> = ({
                   y={primaryY}
                   width={barWidth}
                   height={Math.max(2, primaryHeight)}
-                  rx={4}
+                  rx={2}
                   fill={primaryColor}
                 />
                 <text
                   x={groupX}
                   y={primaryY - 4}
                   textAnchor="middle"
-                  fill="#0f172a"
+                  fill="#0d315c"
                   fontSize="10"
                   fontWeight="bold"
                 >
@@ -158,7 +152,7 @@ export const BarChart: React.FC<BarChartProps> = ({
       </div>
 
       {hasSecondary && (
-        <div className="flex items-center justify-center gap-4 mt-2 text-[11px] text-slate-500">
+        <div className="flex items-center justify-center gap-4 mt-2 text-[11px] text-ink-soft">
           <div className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: primaryColor }} />
             <span>{primaryLabel}</span>
@@ -172,3 +166,5 @@ export const BarChart: React.FC<BarChartProps> = ({
     </div>
   );
 };
+
+export default BarChart;

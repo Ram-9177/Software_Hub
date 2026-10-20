@@ -3,10 +3,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '../../lib/api.js';
 import { Button } from '../../components/ui/Button.js';
 import { Card } from '../../components/ui/Card.js';
+import { StatTile } from '../../components/ui/StatTile.js';
 import { EmptyState } from '../../components/ui/EmptyState.js';
 import { WeeklyTasksBarChart } from '../../components/charts/WeeklyTasksBarChart.js';
 import { useToast } from '../../components/ui/Toast.js';
-import { Download, FileSpreadsheet, Star, BarChart3, TrendingUp } from 'lucide-react';
+import { Download, FileSpreadsheet, Star, BarChart3, TrendingUp, CheckCircle2, Clock, CalendarClock, Award } from 'lucide-react';
 
 export const TrackerScreen: React.FC = () => {
   const queryClient = useQueryClient();
@@ -51,28 +52,29 @@ export const TrackerScreen: React.FC = () => {
   const currentReview = trackerData?.currentReview;
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-16">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="space-y-5 max-w-7xl mx-auto pb-16">
+      {/* SMRU Institutional Executive Header Banner */}
+      <header className="min-w-0 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-card border border-line/70 bg-linear-to-r from-surface via-surface to-indigo-50/25 p-4 sm:p-5 shadow-card">
         <div>
           <div className="flex items-center gap-2">
-            <span className="p-2 rounded-xl bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">
-              <TrendingUp className="w-5 h-5" />
-            </span>
-            <h1 className="text-2xl font-black text-slate-900 dark:text-slate-100 tracking-tight">
+            <h1 className="text-xl sm:text-2xl font-display font-bold text-ink tracking-tight">
               Performance Tracker
             </h1>
+            <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-accent-50 border border-accent-200/80 px-2.5 py-0.5 text-xs font-semibold text-accent-800">
+              <span className="size-1.5 rounded-full bg-accent-500 animate-pulse" />
+              Real-time Metrics
+            </span>
           </div>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+          <p className="mt-1 text-xs sm:text-sm text-ink-soft">
             Central Office intern progression, on-time deliverable completion, and review audits.
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
           <Button
-            variant="outline"
+            variant="secondary"
             size="sm"
-            leftIcon={<FileSpreadsheet className="w-4 h-4 text-emerald-600" />}
+            leftIcon={<FileSpreadsheet className="size-4 text-emerald-600" />}
             onClick={async () => {
               try {
                 const blob = await apiRequest('/exports/tracker');
@@ -89,48 +91,47 @@ export const TrackerScreen: React.FC = () => {
             Export Excel
           </Button>
           <Button
-            variant="outline"
+            variant="secondary"
             size="sm"
-            leftIcon={<Download className="w-4 h-4 text-blue-600" />}
+            leftIcon={<Download className="size-4 text-navy-700" />}
             onClick={() => window.print()}
           >
             Export PDF
           </Button>
         </div>
-      </div>
+      </header>
 
-      {/* 4 Summary Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card padding="md">
-          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Tasks Completed</span>
-          <div className="text-3xl font-black text-slate-900 dark:text-slate-100 mt-1">
-            {summary.tasksDone}
-          </div>
-          <span className="text-[11px] text-slate-400 mt-0.5 block">Approved deliverables</span>
-        </Card>
-        <Card padding="md">
-          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">On-Time Rate</span>
-          <div className="text-3xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
-            {summary.onTimeRate}%
-          </div>
-          <span className="text-[11px] text-slate-400 mt-0.5 block">Delivered before deadline</span>
-        </Card>
-        <Card padding="md">
-          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Overdue Parts</span>
-          <div className="text-3xl font-black text-rose-600 dark:text-rose-400 mt-1">
-            {summary.overdueNow}
-          </div>
-          <span className="text-[11px] text-slate-400 mt-0.5 block">Requiring immediate attention</span>
-        </Card>
-        <Card padding="md">
-          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Average Quality Rating</span>
-          <div className="text-3xl font-black text-amber-500 mt-1 flex items-baseline gap-1">
-            {summary.averageRating > 0 ? summary.averageRating.toFixed(1) : '—'}
-            <span className="text-sm font-semibold text-slate-400">/ 5.0</span>
-          </div>
-          <span className="text-[11px] text-slate-400 mt-0.5 block">Lead & core reviews</span>
-        </Card>
-      </div>
+      {/* 4 Summary StatTiles */}
+      <section aria-label="Tracker Summary" className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <StatTile
+          label="Tasks Completed"
+          value={summary.tasksDone}
+          icon={CheckCircle2}
+          tone="navy"
+          hint="Approved deliverables"
+        />
+        <StatTile
+          label="On-Time Rate"
+          value={`${summary.onTimeRate}%`}
+          icon={Clock}
+          tone="success"
+          hint="Delivered before deadline"
+        />
+        <StatTile
+          label="Overdue Parts"
+          value={summary.overdueNow}
+          icon={CalendarClock}
+          tone={summary.overdueNow > 0 ? 'danger' : 'neutral'}
+          hint="Requiring immediate attention"
+        />
+        <StatTile
+          label="Average Quality Rating"
+          value={summary.averageRating > 0 ? `${summary.averageRating.toFixed(1)} / 5.0` : '—'}
+          icon={Star}
+          tone="amber"
+          hint="Lead & core reviews"
+        />
+      </section>
 
       {/* Main Grid: Interns Leaderboard + Weekly Chart / Month-End Review */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -206,8 +207,8 @@ export const TrackerScreen: React.FC = () => {
 
           {/* Month-End Level Review Action Pane */}
           {currentReview && (
-            <Card padding="md" className="border-t-4 border-t-blue-600">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-1">
+            <Card padding="md" className="border-t-3 border-t-gold-400">
+              <h3 className="text-sm font-display font-bold text-ink mb-1">
                 Month-End Level Review
               </h3>
               <p className="text-xs text-slate-600 dark:text-slate-300 font-semibold">

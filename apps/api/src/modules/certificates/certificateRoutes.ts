@@ -16,26 +16,26 @@ import { USER_ROLES, issueCertificateSchema } from '@command-center/shared';
 
 const router = Router();
 
-// Public verification without login
+// Public verification & PDF credential download without login
 router.get('/verify/:certNumber', publicVerifyCertificate);
+router.get('/:certNumber/pdf', downloadCertificatePdf);
 
 // Protected routes
 router.use(authenticateToken);
 router.get('/', getCertificates);
 router.get('/templates', getCertificateTemplates);
-router.put('/templates/:id', requireRole(USER_ROLES.ADMIN, USER_ROLES.LEAD), updateCertificateTemplate);
+router.put('/templates/:id', requireRole(USER_ROLES.ADMIN, USER_ROLES.MANAGER, USER_ROLES.LEAD), updateCertificateTemplate);
 router.get('/eligibility', checkEligibility);
 router.post(
   '/issue',
-  requireRole(USER_ROLES.ADMIN, USER_ROLES.LEAD),
+  requireRole(USER_ROLES.ADMIN, USER_ROLES.MANAGER, USER_ROLES.LEAD),
   validateBody(issueCertificateSchema),
   issueCertificate
 );
 router.post(
   '/:id/reissue',
-  requireRole(USER_ROLES.ADMIN, USER_ROLES.LEAD),
+  requireRole(USER_ROLES.ADMIN, USER_ROLES.MANAGER, USER_ROLES.LEAD),
   reissueCertificate
 );
-router.get('/:certNumber/pdf', downloadCertificatePdf);
 
 export default router;

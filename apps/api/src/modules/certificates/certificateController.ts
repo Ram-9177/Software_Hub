@@ -1,6 +1,8 @@
 import type { Request, Response } from 'express';
 import PDFDocument from 'pdfkit';
 import QRCode from 'qrcode';
+import fs from 'fs';
+import path from 'path';
 import { db } from '../../config/database.js';
 import { ENV } from '../../config/env.js';
 import {
@@ -12,8 +14,23 @@ import {
 import { sendSystemNotification } from '../automations/emailService.js';
 import { logAdminAction } from '../users/userController.js';
 
+function findTemplateFile(filename: string): string | null {
+  const candidateDirs = [
+    path.resolve(process.cwd(), 'apps/web/public/assets'),
+    path.resolve(process.cwd(), '../web/public/assets'),
+    path.resolve(process.cwd(), '../../apps/web/public/assets'),
+    path.resolve(process.cwd(), 'public/assets'),
+    path.resolve(process.cwd(), 'assets'),
+  ];
+  for (const dir of candidateDirs) {
+    const full = path.join(dir, filename);
+    if (fs.existsSync(full)) return full;
+  }
+  return null;
+}
+
 /**
- * Generate PDF buffer for a certificate using PDFKit
+ * Generate publication-grade PDF buffer for a certificate using official SMRU templates
  */
 async function generateCertificatePdfBuffer(cert: {
   certificateNumber: string;
@@ -25,6 +42,8 @@ async function generateCertificatePdfBuffer(cert: {
   tasksCompleted: number;
   issuedByName: string;
   qrDataUrl: string;
+  designation?: string;
+  internshipPeriod?: string;
 }): Promise<Buffer> {
   return new Promise(async (resolve, reject) => {
     try {
@@ -35,6 +54,8 @@ async function generateCertificatePdfBuffer(cert: {
       });
 
       const isCore = cert.category === 'paid' || cert.level >= 2;
+      const templateFilename = isCore ? 'cert_paid_template.jpg' : 'cert_unpaid_template.jpg';
+      const templatePath = findTemplateFile(templateFilename);
 
       // A4 Landscape: 841.89 x 595.28 points
       const doc = new PDFDocument({
@@ -51,118 +72,127 @@ async function generateCertificatePdfBuffer(cert: {
       const pageWidth = doc.page.width;
       const pageHeight = doc.page.height;
 
-      // Decorative double border
-      doc
-        .rect(20, 20, pageWidth - 40, pageHeight - 40)
-        .lineWidth(3)
-        .stroke(isCore ? '#1d4ed8' : '#b45309');
+      if (templatePath) {
+        // High-Resolution Official University Background
+        doc.image(templatePath, 0, 0, { width: pageWidth, height: pageHeight });
 
-      doc
-        .rect(26, 26, pageWidth - 52, pageHeight - 52)
-        .lineWidth(0.75)
-        .stroke('#cbd5e1');
+        if (isCore) {
+          // Core (Paid) Engineering Credential Layout
+          doc
+            .fontSize(23)
+            .font('Helvetica-Bold')
+            .fillColor('#0f2942')
+            .text(cert.internName.toUpperCase(), 0, 284, { align: 'center', width: pageWidth });
 
-      // Corner accent marks
-      const cornerSize = 18;
-      doc.rect(20, 20, cornerSize, cornerSize).fill(isCore ? '#1d4ed8' : '#b45309');
-      doc.rect(pageWidth - 20 - cornerSize, 20, cornerSize, cornerSize).fill(isCore ? '#1d4ed8' : '#b45309');
-      doc.rect(20, pageHeight - 20 - cornerSize, cornerSize, cornerSize).fill(isCore ? '#1d4ed8' : '#b45309');
-      doc.rect(pageWidth - 20 - cornerSize, pageHeight - 20 - cornerSize, cornerSize, cornerSize).fill(isCore ? '#1d4ed8' : '#b45309');
+          doc
+            .fontSize(10)
+            .font('Helvetica-Bold')
+            .fillColor('#1e293b')
+            .text(cert.designation || 'Core Software Engineering Intern', 255, 455);
 
-      // Header: Software Hub 2.0 Central Office
-      doc
-        .font('Helvetica-Bold')
-        .fontSize(22)
-        .fillColor('#0f172a')
-        .text('SOFTWARE HUB 2.0', 0, 70, { align: 'center', width: pageWidth });
+          doc
+            .fontSize(10)
+            .font('Helvetica-Bold')
+            .fillColor('#1e293b')
+            .text(`Level ${cert.level}`, 630, 455);
 
-      doc
-        .font('Helvetica')
-        .fontSize(11)
-        .fillColor('#64748b')
-        .text('CENTRAL OFFICE OPERATIONS & CREDENTIAL REGISTRY', 0, 98, {
-          align: 'center',
-          width: pageWidth,
-        });
+          doc
+            .fontSize(9.5)
+            .font('Helvetica-Bold')
+            .fillColor('#1e293b')
+            .text(cert.internshipPeriod || '01 Aug 2026 – 20 Oct 2026', 305, 510);
 
-      // Title
-      doc
-        .font('Helvetica-Bold')
-        .fontSize(18)
-        .fillColor(isCore ? '#1d4ed8' : '#b45309')
-        .text(
-          isCore ? 'CERTIFICATE OF CORE INTERNSHIP' : 'CERTIFICATE OF FOUNDATIONAL INTERNSHIP',
-          0,
-          145,
-          { align: 'center', width: pageWidth }
-        );
+          doc
+            .fontSize(9.5)
+            .font('Helvetica-Bold')
+            .fillColor('#1e293b')
+            .text(cert.issueDate, 690, 510);
 
-      doc
-        .font('Helvetica')
-        .fontSize(12)
-        .fillColor('#475569')
-        .text('This is to certify that', 0, 190, { align: 'center', width: pageWidth });
+          doc
+            .fontSize(9.5)
+            .font('Helvetica-Bold')
+            .fillColor('#1e293b')
+            .text(cert.issuedByName || 'Director, Central Office, SMRU', 340, 568);
 
-      // Recipient Name
-      doc
-        .font('Helvetica-Bold')
-        .fontSize(26)
-        .fillColor('#0f172a')
-        .text(cert.internName, 0, 220, { align: 'center', width: pageWidth });
+          doc.image(qrPngBuffer, 740, 526, { width: 52, height: 52 });
+          doc
+            .fontSize(7)
+            .font('Helvetica-Bold')
+            .fillColor('#475569')
+            .text(`ID: ${cert.certificateNumber}`, 720, 579, { width: 92, align: 'center' });
+        } else {
+          // Foundational Central Office Credential Layout
+          doc
+            .fontSize(23)
+            .font('Helvetica-Bold')
+            .fillColor('#0f2942')
+            .text(cert.internName.toUpperCase(), 0, 282, { align: 'center', width: pageWidth });
 
-      // Description text
-      const desc = isCore
-        ? `has fulfilled all requirements of the Core (Paid) Engineering Track (Level ${cert.level}), demonstrating proficiency in university operations management and technical leadership.`
-        : `has fulfilled all foundational requirements of the University Central Office Unpaid Internship Programme (Level ${cert.level}) in good standing.`;
+          doc
+            .fontSize(10)
+            .font('Helvetica-Bold')
+            .fillColor('#1e293b')
+            .text(cert.designation || 'Foundational Central Office Intern', 195, 420);
 
-      doc
-        .font('Helvetica')
-        .fontSize(11)
-        .fillColor('#334155')
-        .text(desc, 80, 275, { align: 'center', width: pageWidth - 160, lineGap: 4 });
+          doc
+            .fontSize(10)
+            .font('Helvetica-Bold')
+            .fillColor('#1e293b')
+            .text(`Level ${cert.level}`, 595, 420);
 
-      // Performance stats badge
-      doc
-        .font('Helvetica-Bold')
-        .fontSize(10)
-        .fillColor('#475569')
-        .text(
-          `Verified Attendance: ${cert.attendancePercentage}%  •  Completed Deliverables: ${cert.tasksCompleted}`,
-          0,
-          340,
-          { align: 'center', width: pageWidth }
-        );
+          doc
+            .fontSize(9.5)
+            .font('Helvetica-Bold')
+            .fillColor('#1e293b')
+            .text(cert.internshipPeriod || '01 Sep 2026 – 20 Oct 2026', 225, 468);
 
-      // Signatory line
-      const signY = pageHeight - 130;
-      doc.lineWidth(1).strokeColor('#94a3b8').moveTo(pageWidth - 320, signY).lineTo(pageWidth - 80, signY).stroke();
+          doc
+            .fontSize(9.5)
+            .font('Helvetica-Bold')
+            .fillColor('#1e293b')
+            .text(cert.issueDate, 195, 522);
 
-      doc
-        .font('Helvetica-Bold')
-        .fontSize(10)
-        .fillColor('#0f172a')
-        .text(cert.issuedByName || 'Director / Central Office Lead', pageWidth - 320, signY + 6, {
-          width: 240,
-          align: 'center',
-        });
+          doc
+            .fontSize(9.5)
+            .font('Helvetica-Bold')
+            .fillColor('#1e293b')
+            .text(cert.issuedByName || 'Lead & Director, Central Office, SMRU', 255, 573);
 
-      doc
-        .font('Helvetica')
-        .fontSize(8.5)
-        .fillColor('#64748b')
-        .text('Authorized University Central Office Signatory', pageWidth - 320, signY + 20, {
-          width: 240,
-          align: 'center',
-        });
+          doc.image(qrPngBuffer, 650, 470, { width: 70, height: 70 });
+          doc
+            .fontSize(8)
+            .font('Helvetica-Bold')
+            .fillColor('#475569')
+            .text(`ID: ${cert.certificateNumber}`, 630, 545, { width: 110, align: 'center' });
+        }
+      } else {
+        // Fallback institutional vector design
+        doc.rect(20, 20, pageWidth - 40, pageHeight - 40).lineWidth(3).stroke(isCore ? '#0d315c' : '#b45309');
+        doc.rect(26, 26, pageWidth - 52, pageHeight - 52).lineWidth(0.75).stroke('#cbd5e1');
 
-      // Bottom left: Certificate details
-      doc.font('Helvetica').fontSize(9).fillColor('#475569');
-      doc.text(`Credential ID: ${cert.certificateNumber}`, 75, pageHeight - 110);
-      doc.text(`Issued Date: ${cert.issueDate}`, 75, pageHeight - 96);
-      doc.text(`Verify Online: ${cert.qrDataUrl}`, 75, pageHeight - 82);
+        doc.font('Helvetica-Bold').fontSize(22).fillColor('#0d315c').text('ST. MARY’S REHABILITATION UNIVERSITY', 0, 70, { align: 'center', width: pageWidth });
+        doc.font('Helvetica').fontSize(11).fillColor('#64748b').text('CENTRAL OFFICE OPERATIONS & CREDENTIAL REGISTRY', 0, 98, { align: 'center', width: pageWidth });
+        doc.font('Helvetica-Bold').fontSize(18).fillColor(isCore ? '#0d315c' : '#b45309').text(isCore ? 'CERTIFICATE OF CORE INTERNSHIP' : 'CERTIFICATE OF FOUNDATIONAL INTERNSHIP', 0, 145, { align: 'center', width: pageWidth });
+        doc.font('Helvetica').fontSize(12).fillColor('#475569').text('This is to certify that', 0, 190, { align: 'center', width: pageWidth });
+        doc.font('Helvetica-Bold').fontSize(26).fillColor('#0f172a').text(cert.internName, 0, 220, { align: 'center', width: pageWidth });
 
-      // Bottom center: QR Code
-      doc.image(qrPngBuffer, 75, pageHeight - 70 - 75, { width: 70 });
+        const desc = isCore
+          ? `has fulfilled all requirements of the Core (Paid) Engineering Track (Level ${cert.level}), demonstrating proficiency in university operations management and technical leadership.`
+          : `has fulfilled all foundational requirements of the University Central Office Unpaid Internship Programme (Level ${cert.level}) in good standing.`;
+        doc.font('Helvetica').fontSize(11).fillColor('#334155').text(desc, 80, 275, { align: 'center', width: pageWidth - 160, lineGap: 4 });
+        doc.font('Helvetica-Bold').fontSize(10).fillColor('#475569').text(`Verified Attendance: ${cert.attendancePercentage}%  •  Completed Deliverables: ${cert.tasksCompleted}`, 0, 340, { align: 'center', width: pageWidth });
+
+        const signY = pageHeight - 130;
+        doc.lineWidth(1).strokeColor('#94a3b8').moveTo(pageWidth - 320, signY).lineTo(pageWidth - 80, signY).stroke();
+        doc.font('Helvetica-Bold').fontSize(10).fillColor('#0f172a').text(cert.issuedByName || 'Director, Central Office, SMRU', pageWidth - 320, signY + 6, { width: 240, align: 'center' });
+        doc.font('Helvetica').fontSize(8.5).fillColor('#64748b').text('Authorized University Central Office Signatory', pageWidth - 320, signY + 20, { width: 240, align: 'center' });
+
+        doc.font('Helvetica').fontSize(9).fillColor('#475569');
+        doc.text(`Credential ID: ${cert.certificateNumber}`, 75, pageHeight - 110);
+        doc.text(`Issued Date: ${cert.issueDate}`, 75, pageHeight - 96);
+        doc.text(`Verify Online: ${cert.qrDataUrl}`, 75, pageHeight - 82);
+        doc.image(qrPngBuffer, 75, pageHeight - 145, { width: 65 });
+      }
 
       doc.end();
     } catch (err) {
@@ -484,7 +514,39 @@ export async function publicVerifyCertificate(req: Request, res: Response) {
 // 6. CERTIFICATE TEMPLATES (For configuration)
 // ----------------------------------------------------------------------
 export async function getCertificateTemplates(_req: Request, res: Response) {
-  const templates = await db('certificate_templates').select('*');
+  let templates = await db('certificate_templates').select('*');
+  if (templates.length === 0) {
+    const defaults = [
+      {
+        id: 'tpl-core-paid',
+        category: 'paid',
+        title: 'Core (Paid) Engineering Credential',
+        background_image_path: '/assets/cert_paid_template.jpg',
+        min_attendance_percentage: 75.0,
+        min_marksheet_percentage: 80.0,
+        min_level: 2,
+        authorized_signatory: 'Director, Central Office, St. Mary’s Rehabilitation University',
+        is_active: true,
+        created_at: new Date(),
+        updated_at: new Date(),
+      },
+      {
+        id: 'tpl-foundational-unpaid',
+        category: 'unpaid',
+        title: 'Foundational Central Office Credential',
+        background_image_path: '/assets/cert_unpaid_template.jpg',
+        min_attendance_percentage: 75.0,
+        min_marksheet_percentage: 0.0,
+        min_level: 1,
+        authorized_signatory: 'Lead & Director, Central Office, St. Mary’s Rehabilitation University',
+        is_active: true,
+        created_at: new Date(),
+        updated_at: new Date(),
+      },
+    ];
+    await db('certificate_templates').insert(defaults);
+    templates = await db('certificate_templates').select('*');
+  }
   return res.json(templates);
 }
 

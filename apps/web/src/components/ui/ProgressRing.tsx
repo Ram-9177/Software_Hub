@@ -1,4 +1,5 @@
 import React from 'react';
+import { cn } from './utils';
 
 export interface ProgressRingProps {
   current: number;
@@ -15,7 +16,7 @@ export const ProgressRing: React.FC<ProgressRingProps> = ({
   total = 100,
   size = 72,
   strokeWidth = 6,
-  color = '#2563eb',
+  color = '#0d315c',
   className = '',
   label,
 }) => {
@@ -25,7 +26,7 @@ export const ProgressRing: React.FC<ProgressRingProps> = ({
   const strokeDashoffset = circumference - (percentage / 100) * circumference;
 
   return (
-    <div className={`relative inline-flex items-center justify-center ${className}`}>
+    <div className={cn('relative inline-flex items-center justify-center select-none', className)}>
       <svg width={size} height={size} className="transform -rotate-90">
         <circle
           cx={size / 2}
@@ -33,7 +34,7 @@ export const ProgressRing: React.FC<ProgressRingProps> = ({
           r={radius}
           stroke="currentColor"
           strokeWidth={strokeWidth}
-          className="text-slate-100 dark:text-slate-800"
+          className="text-line dark:text-slate-800"
           fill="transparent"
         />
         <circle
@@ -50,15 +51,17 @@ export const ProgressRing: React.FC<ProgressRingProps> = ({
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-        <span className="text-sm font-black text-slate-900 dark:text-white leading-none">
+        <span className="font-display text-sm font-bold text-ink leading-none">
           {current}
         </span>
         {label ? (
-          <span className="text-[9px] font-semibold text-slate-400 mt-0.5">{label}</span>
+          <span className="text-[9px] font-semibold text-ink-faint mt-0.5">{label}</span>
         ) : total !== 100 ? (
-          <span className="text-[9px] font-semibold text-slate-400 mt-0.5">of {total}</span>
+          <span className="text-[9px] font-semibold text-ink-faint mt-0.5">of {total}</span>
         ) : null}
       </div>
     </div>
   );
 };
+
+export default ProgressRing;

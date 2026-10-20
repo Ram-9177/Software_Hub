@@ -357,10 +357,10 @@ export async function getIcsFeed(req: Request, res: Response) {
   const lines: string[] = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//Command Center//Central Office Calendar//EN',
+    'PRODID:-//Software Hub//Software Hub Calendar//EN',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
-    `X-WR-CALNAME:Command Center - ${user.name}`,
+    `X-WR-CALNAME:Software Hub - ${user.name}`,
     'X-WR-TIMEZONE:UTC',
   ];
 
@@ -368,12 +368,12 @@ export async function getIcsFeed(req: Request, res: Response) {
     const due = new Date(part.dueDate);
     lines.push(
       'BEGIN:VEVENT',
-      `UID:task-${part.id}@commandcenter.smru.edu.in`,
+      `UID:task-${part.id}@softwarehub.smru.edu.in`,
       `DTSTAMP:${formatDateToIcs(new Date())}`,
       `DTSTART:${formatDateToIcs(due)}`,
       `DTEND:${formatDateToIcs(new Date(due.getTime() + 60 * 60 * 1000))}`,
       `SUMMARY:${part.taskTitle}: ${part.title}`,
-      `DESCRIPTION:Status: ${part.status}. Deliverable assigned via Command Center.`,
+      `DESCRIPTION:Status: ${part.status}. Deliverable assigned via Software Hub.`,
       'STATUS:CONFIRMED',
       'END:VEVENT'
     );

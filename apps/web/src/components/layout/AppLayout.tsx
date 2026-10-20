@@ -2,7 +2,6 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation, NavLink } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Menu,
   Sun,
   Moon,
   Bell,
@@ -19,14 +18,15 @@ import {
   Zap,
   LogOut,
   ShieldCheck,
-  VolumeX,
-  Volume2,
+  User,
 } from 'lucide-react';
 import { Sidebar, type CurrentUser } from './Sidebar.js';
+import { Brand } from './Brand.js';
 import { USER_ROLES } from '@command-center/shared';
 import { useTheme } from '../../contexts/ThemeContext.js';
 import { apiRequest } from '../../lib/api.js';
 import { Sheet } from '../ui/Sheet.js';
+import { cn } from '../ui/utils.js';
 
 interface AppLayoutProps {
   currentUser: CurrentUser;
@@ -40,12 +40,31 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ currentUser, onLogout }) =
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
-  const { theme, toggleTheme } = useTheme();
+  const { theme, resolvedTheme, toggleTheme } = useTheme();
 
   const isManagement =
     currentUser.role === USER_ROLES.ADMIN || currentUser.role === USER_ROLES.LEAD;
 
-  // 1. Fetch live notifications
+  const [isResending, setIsResending] = useState(false);
+  const [resendSuccess, setResendSuccess] = useState(false);
+
+  const handleResendVerification = async () => {
+    setIsResending(true);
+    try {
+      await apiRequest('/auth/resend-verification', {
+        method: 'POST',
+        body: JSON.stringify({ email: currentUser.email }),
+      });
+      setResendSuccess(true);
+      setTimeout(() => setResendSuccess(false), 5000);
+    } catch {
+      // ignore
+    } finally {
+      setIsResending(false);
+    }
+  };
+
+  // 1. Live notifications
   const { data: notifData } = useQuery({
     queryKey: ['notifications'],
     queryFn: () =>
@@ -56,7 +75,6 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ currentUser, onLogout }) =
     refetchInterval: 10000,
   });
 
-  // Mark all notifications read
   const markReadMutation = useMutation({
     mutationFn: (id: string) =>
       apiRequest(`/notifications/${id}/read`, { method: 'PATCH' }),
@@ -65,7 +83,6 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ currentUser, onLogout }) =
     },
   });
 
-  // Close notifications on outside click
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (notifRef.current && !notifRef.current.contains(event.target as Node)) {
@@ -79,7 +96,6 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ currentUser, onLogout }) =
   const unreadCount = notifData?.unreadCount ?? 0;
   const notifications = notifData?.notifications ?? [];
 
-  // Bottom Navigation main 5 items
   const mainMobileTabs = [
     { label: 'Home', path: '/', icon: Home },
     { label: 'To-Do', path: '/todo', icon: CheckSquare },
@@ -88,7 +104,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ currentUser, onLogout }) =
   ];
 
   return (
-    <div className="flex h-screen w-screen overflow-x-hidden overflow-y-hidden bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors duration-200">
+    <div className="flex h-screen w-screen overflow-hidden bg-canvas text-ink transition-colors duration-200">
       {/* Desktop Persistent Sidebar (>= 1024px) */}
       <div className="hidden lg:flex h-full shrink-0">
         <Sidebar currentUser={currentUser} onLogout={onLogout} />
@@ -96,19 +112,15 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ currentUser, onLogout }) =
 
       {/* Main Content Workspace */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
-        {/* Top Header (All viewports) */}
-        <header className="flex items-center justify-between px-4 sm:px-6 py-3 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shrink-0">
+        {/* SMRU Institutional Top Header with gold accent line */}
+        <header className="sticky top-0 z-30 flex items-center justify-between px-4 sm:px-6 py-2.5 bg-surface border-b border-line border-t-2 border-t-gold-400 safe-top shrink-0 shadow-2xs">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl bg-blue-600 flex items-center justify-center font-bold text-xs text-white shadow-xs">
-              CC
+            <div className="lg:hidden">
+              <Brand compact />
             </div>
-            <div>
-              <h1 className="text-xs font-bold text-slate-900 dark:text-white leading-tight">
-                Software Hub 2.0
-              </h1>
-              <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                Central Office Command Center
-              </p>
+            <div className="hidden lg:flex items-center gap-2">
+              <span className="inline-flex size-2 rounded-full bg-accent-500 animate-pulse" />
+              <span className="text-xs font-semibold text-ink-soft">Central Office Active</span>
             </div>
           </div>
 
@@ -118,50 +130,51 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ currentUser, onLogout }) =
               <button
                 type="button"
                 onClick={() => setIsNotifOpen(!isNotifOpen)}
-                className="relative p-2 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+                className="relative size-9 rounded-control border border-line-strong hover:border-navy-300 text-ink-soft hover:text-navy-800 transition-colors flex items-center justify-center cursor-pointer focus-visible:outline-2 focus-visible:outline-navy-500"
                 title="Notifications"
                 aria-label="View notifications"
               >
-                <Bell className="w-4 h-4" />
+                <Bell className="size-4" />
                 {unreadCount > 0 && (
-                  <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full ring-2 ring-white dark:ring-slate-900" />
+                  <span className="absolute top-1 right-1 size-2 bg-danger-600 rounded-full ring-2 ring-surface" />
                 )}
               </button>
 
               {/* Notification Popover Dropdown */}
               {isNotifOpen && (
-                <div className="absolute right-0 mt-2 w-80 sm:w-96 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-                  <div className="p-3.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/70 dark:bg-slate-800/50">
-                    <span className="text-xs font-bold text-slate-900 dark:text-slate-100">
+                <div className="absolute right-0 mt-2 w-80 sm:w-96 rounded-card bg-surface border border-line shadow-pop z-50 overflow-hidden animate-pop-in">
+                  <div className="p-3.5 border-b border-line flex items-center justify-between bg-canvas/70">
+                    <span className="text-xs font-bold text-ink uppercase tracking-wider">
                       Notifications
                     </span>
                     {unreadCount > 0 && (
                       <button
                         type="button"
                         onClick={() => markReadMutation.mutate('all')}
-                        className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 flex items-center gap-1"
+                        className="text-[11px] font-semibold text-navy-700 hover:text-navy-900 flex items-center gap-1 cursor-pointer"
                       >
-                        <CheckCheck className="w-3.5 h-3.5" /> Mark read
+                        <CheckCheck className="size-3.5" /> Mark read
                       </button>
                     )}
                   </div>
 
-                  <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                  <div className="max-h-80 overflow-y-auto divide-y divide-line">
                     {notifications.length === 0 ? (
-                      <div className="p-6 text-center text-xs text-slate-400 italic">
+                      <div className="p-6 text-center text-xs text-ink-faint italic">
                         No new notifications
                       </div>
                     ) : (
                       notifications.map((n: any) => (
                         <div
                           key={n.id}
-                          className={`p-3 text-xs transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/60 ${
-                            !n.is_read ? 'bg-blue-50/40 dark:bg-blue-950/20' : ''
-                          }`}
+                          className={cn(
+                            'p-3 text-xs transition-colors hover:bg-tint cursor-pointer',
+                            !n.is_read ? 'bg-navy-50/60 font-semibold' : ''
+                          )}
                         >
-                          <h4 className="font-bold text-slate-900 dark:text-white">{n.title}</h4>
-                          <p className="text-slate-600 dark:text-slate-300 mt-0.5">{n.message}</p>
-                          <span className="text-[10px] text-slate-400 mt-1 block">
+                          <h4 className="font-bold text-ink">{n.title}</h4>
+                          <p className="text-ink-soft mt-0.5 font-normal">{n.message}</p>
+                          <span className="text-[10px] text-ink-faint mt-1 block font-normal">
                             {new Date(n.created_at).toLocaleString()}
                           </span>
                         </div>
@@ -176,37 +189,60 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ currentUser, onLogout }) =
             <button
               type="button"
               onClick={toggleTheme}
-              className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
-              title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} mode`}
+              className="size-9 rounded-control border border-line-strong hover:border-navy-300 text-ink-soft hover:text-navy-800 transition-colors flex items-center justify-center cursor-pointer focus-visible:outline-2 focus-visible:outline-navy-500"
+              title={`Switch to ${resolvedTheme === 'dark' ? 'Light' : 'Dark'} mode`}
               aria-label="Toggle theme"
             >
-              {theme === 'dark' ? (
-                <Sun className="w-4 h-4 text-amber-400" />
+              {resolvedTheme === 'dark' ? (
+                <Sun className="size-4 text-amber-400" />
               ) : (
-                <Moon className="w-4 h-4" />
+                <Moon className="size-4" />
               )}
             </button>
 
             {/* User Pill */}
-            <div className="hidden sm:flex items-center gap-2 pl-2 border-l border-slate-200 dark:border-slate-800">
-              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+            <div className="hidden sm:flex items-center gap-2 pl-2 border-l border-line">
+              <span className="text-xs font-semibold text-ink">
                 {currentUser.name}
               </span>
-              <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900">
+              <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-sm bg-navy-50 text-navy-800 ring-1 ring-inset ring-navy-200">
                 {currentUser.role}
               </span>
             </div>
           </div>
         </header>
 
+        {/* Email verification reminder banner */}
+        {currentUser && currentUser.emailVerified === false && (
+          <div className="bg-gold-100 border-b border-gold-300/80 px-4 py-2 flex items-center justify-between text-xs text-gold-900 shrink-0">
+            <div className="flex items-center gap-2">
+              <span className="size-2 rounded-full bg-gold-600 animate-pulse" />
+              <span>Verify your email to secure your account.</span>
+              {resendSuccess && (
+                <span className="text-accent-700 font-semibold">
+                  (Verification email sent!)
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={handleResendVerification}
+              disabled={isResending}
+              className="font-bold underline hover:no-underline text-gold-950 min-h-8 px-2 flex items-center disabled:opacity-50 cursor-pointer"
+            >
+              {isResending ? 'Sending...' : 'Resend link'}
+            </button>
+          </div>
+        )}
+
         {/* Scrollable Viewport for Screen Content */}
-        <main className="flex-1 overflow-y-auto overflow-x-hidden p-3.5 sm:p-6 lg:p-8 pb-20 lg:pb-8">
+        <main id="main-content" className="flex-1 overflow-y-auto overflow-x-hidden p-3.5 sm:p-6 lg:p-8 pb-24 lg:pb-8">
           <Outlet />
         </main>
 
-        {/* Mobile Bottom Navigation Bar (< 1024px) */}
+        {/* SMRU Mobile Bottom Navigation Bar (< 1024px) */}
         <nav
-          className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 flex items-center justify-around px-2 py-1 shadow-lg pb-safe"
+          className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-surface/95 backdrop-blur-md border-t border-line flex items-center justify-around px-2 py-1 shadow-card safe-bottom"
           aria-label="Mobile Navigation"
         >
           {mainMobileTabs.map((tab) => {
@@ -216,14 +252,18 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ currentUser, onLogout }) =
               <NavLink
                 key={tab.path}
                 to={tab.path}
-                className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-xl min-h-[44px] min-w-[44px] transition-colors ${
+                className={cn(
+                  'relative flex flex-col items-center justify-center py-1.5 px-3 rounded-control min-h-11 min-w-11 transition-colors',
                   isActive
-                    ? 'text-blue-600 dark:text-blue-400 font-bold'
-                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
+                    ? 'text-navy-800 font-bold'
+                    : 'text-ink-faint hover:text-ink'
+                )}
               >
-                <Icon className={`w-5 h-5 ${isActive ? 'stroke-[2.5]' : 'stroke-2'}`} />
-                <span className="text-[10px] mt-0.5">{tab.label}</span>
+                {isActive && (
+                  <span aria-hidden className="absolute inset-x-3 top-0 h-0.5 rounded-full bg-gold-400" />
+                )}
+                <Icon className={cn('size-5', isActive ? 'stroke-[2.25]' : 'stroke-2')} />
+                <span className="text-[10px] mt-0.5 leading-none">{tab.label}</span>
               </NavLink>
             );
           })}
@@ -232,15 +272,19 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ currentUser, onLogout }) =
           <button
             type="button"
             onClick={() => setIsMoreSheetOpen(true)}
-            className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-xl min-h-[44px] min-w-[44px] transition-colors ${
+            className={cn(
+              'relative flex flex-col items-center justify-center py-1.5 px-3 rounded-control min-h-11 min-w-11 transition-colors cursor-pointer',
               isMoreSheetOpen
-                ? 'text-blue-600 dark:text-blue-400 font-bold'
-                : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-            }`}
+                ? 'text-navy-800 font-bold'
+                : 'text-ink-faint hover:text-ink'
+            )}
             aria-label="Open secondary navigation menu"
           >
-            <MoreHorizontal className="w-5 h-5" />
-            <span className="text-[10px] mt-0.5">More</span>
+            {isMoreSheetOpen && (
+              <span aria-hidden className="absolute inset-x-3 top-0 h-0.5 rounded-full bg-gold-400" />
+            )}
+            <MoreHorizontal className="size-5" />
+            <span className="text-[10px] mt-0.5 leading-none">More</span>
           </button>
         </nav>
       </div>
@@ -260,9 +304,9 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ currentUser, onLogout }) =
                 navigate('/tracker');
                 setIsMoreSheetOpen(false);
               }}
-              className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-slate-200 dark:border-slate-800 text-left min-h-[44px] transition-colors"
+              className="flex items-center gap-2.5 p-3 rounded-control bg-canvas hover:bg-tint border border-line text-left min-h-11 transition-colors cursor-pointer text-ink"
             >
-              <BarChart2 className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              <BarChart2 className="size-4 text-navy-700" />
               <span>Operations Tracker</span>
             </button>
 
@@ -272,9 +316,9 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ currentUser, onLogout }) =
                 navigate('/certificates');
                 setIsMoreSheetOpen(false);
               }}
-              className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-slate-200 dark:border-slate-800 text-left min-h-[44px] transition-colors"
+              className="flex items-center gap-2.5 p-3 rounded-control bg-canvas hover:bg-tint border border-line text-left min-h-11 transition-colors cursor-pointer text-ink"
             >
-              <Award className="w-4 h-4 text-amber-500" />
+              <Award className="size-4 text-gold-600" />
               <span>Certificates</span>
             </button>
 
@@ -284,9 +328,9 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ currentUser, onLogout }) =
                 navigate('/calendar');
                 setIsMoreSheetOpen(false);
               }}
-              className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-slate-200 dark:border-slate-800 text-left min-h-[44px] transition-colors"
+              className="flex items-center gap-2.5 p-3 rounded-control bg-canvas hover:bg-tint border border-line text-left min-h-11 transition-colors cursor-pointer text-ink"
             >
-              <Calendar className="w-4 h-4 text-emerald-500" />
+              <Calendar className="size-4 text-accent-600" />
               <span>Office Calendar</span>
             </button>
 
@@ -298,9 +342,9 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ currentUser, onLogout }) =
                     navigate('/interns');
                     setIsMoreSheetOpen(false);
                   }}
-                  className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-slate-200 dark:border-slate-800 text-left min-h-[44px] transition-colors"
+                  className="flex items-center gap-2.5 p-3 rounded-control bg-canvas hover:bg-tint border border-line text-left min-h-11 transition-colors cursor-pointer text-ink"
                 >
-                  <Users className="w-4 h-4 text-purple-500" />
+                  <Users className="size-4 text-violet-600" />
                   <span>Roster & Interns</span>
                 </button>
 
@@ -310,10 +354,10 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ currentUser, onLogout }) =
                     navigate('/automations');
                     setIsMoreSheetOpen(false);
                   }}
-                  className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-slate-200 dark:border-slate-800 text-left min-h-[44px] transition-colors"
+                  className="flex items-center gap-2.5 p-3 rounded-control bg-canvas hover:bg-tint border border-line text-left min-h-11 transition-colors cursor-pointer text-ink"
                 >
-                  <Zap className="w-4 h-4 text-amber-500" />
-                  <span>Email Automations</span>
+                  <Zap className="size-4 text-amber-600" />
+                  <span>Automations</span>
                 </button>
               </>
             )}
@@ -324,9 +368,9 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ currentUser, onLogout }) =
                 navigate('/profile');
                 setIsMoreSheetOpen(false);
               }}
-              className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-slate-200 dark:border-slate-800 text-left min-h-[44px] transition-colors"
+              className="flex items-center gap-2.5 p-3 rounded-control bg-canvas hover:bg-tint border border-line text-left min-h-11 transition-colors cursor-pointer text-ink"
             >
-              <Users className="w-4 h-4 text-emerald-500" />
+              <User className="size-4 text-navy-600" />
               <span>Profile & Settings</span>
             </button>
 
@@ -336,26 +380,26 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ currentUser, onLogout }) =
                 navigate('/verify');
                 setIsMoreSheetOpen(false);
               }}
-              className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-slate-200 dark:border-slate-800 text-left min-h-[44px] transition-colors"
+              className="flex items-center gap-2.5 p-3 rounded-control bg-canvas hover:bg-tint border border-line text-left min-h-11 transition-colors cursor-pointer text-ink"
             >
-              <ShieldCheck className="w-4 h-4 text-indigo-500" />
+              <ShieldCheck className="size-4 text-indigo-600" />
               <span>Verify Credential</span>
             </button>
           </div>
 
-          <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
+          <div className="pt-3 border-t border-line flex items-center justify-between">
             <button
               type="button"
               onClick={toggleTheme}
-              className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300 min-h-[44px] p-2"
+              className="flex items-center gap-2 text-xs font-semibold text-ink-soft hover:text-ink min-h-11 p-2 cursor-pointer"
             >
               {theme === 'dark' ? (
                 <>
-                  <Sun className="w-4 h-4 text-amber-400" /> Light Mode
+                  <Sun className="size-4 text-amber-400" /> Light Mode
                 </>
               ) : (
                 <>
-                  <Moon className="w-4 h-4" /> Dark Mode
+                  <Moon className="size-4" /> Dark Mode
                 </>
               )}
             </button>
@@ -366,9 +410,9 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ currentUser, onLogout }) =
                 setIsMoreSheetOpen(false);
                 onLogout();
               }}
-              className="flex items-center gap-2 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:text-rose-700 min-h-[44px] p-2"
+              className="flex items-center gap-2 text-xs font-semibold text-danger-600 hover:text-danger-700 min-h-11 p-2 cursor-pointer"
             >
-              <LogOut className="w-4 h-4" />
+              <LogOut className="size-4" />
               <span>Sign Out</span>
             </button>
           </div>
@@ -377,4 +421,5 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ currentUser, onLogout }) =
     </div>
   );
 };
+
 export default AppLayout;

@@ -8,8 +8,11 @@ import { Card } from '../../components/ui/Card.js';
 import { Modal } from '../../components/ui/Modal.js';
 import { Input } from '../../components/ui/Input.js';
 import { Select } from '../../components/ui/Select.js';
+import { Textarea } from '../../components/ui/Textarea.js';
 import { useToast } from '../../components/ui/Toast.js';
 import { EmptyState } from '../../components/ui/EmptyState.js';
+import { Avatar } from '../../components/ui/Avatar.js';
+import { cn } from '../../components/ui/utils.js';
 import { USER_ROLES, INTERN_TYPES } from '@command-center/shared';
 import {
   UserPlus,
@@ -21,6 +24,8 @@ import {
   Clock,
   Sparkles,
   Users,
+  CheckCircle2,
+  FileCheck,
 } from 'lucide-react';
 
 export const InternsScreen: React.FC = () => {
@@ -29,17 +34,25 @@ export const InternsScreen: React.FC = () => {
   const { showToast } = useToast();
 
   const [activeTab, setActiveTab] = useState<'roster' | 'invites'>('roster');
-  const [activeFilter, setActiveFilter] = useState<'all' | 'paid' | 'unpaid'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'managers' | 'paid' | 'unpaid'>('all');
 
   // Invite Modal State
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [inviteName, setInviteName] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<string>(
-    currentUser?.role === USER_ROLES.PAID_INTERN ? USER_ROLES.UNPAID_INTERN : USER_ROLES.UNPAID_INTERN
+    currentUser?.role === USER_ROLES.PAID_INTERN || currentUser?.role === USER_ROLES.UNPAID_INTERN
+      ? USER_ROLES.UNPAID_INTERN
+      : USER_ROLES.UNPAID_INTERN
   );
   const [generatedInviteLink, setGeneratedInviteLink] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
+
+  // Bulk Creation Modal State (PDF Page 2)
+  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
+  const [bulkEmailsText, setBulkEmailsText] = useState('');
+  const [bulkInternType, setBulkInternType] = useState<string>(INTERN_TYPES.UNPAID);
+  const [bulkMentorId, setBulkMentorId] = useState<string>('');
 
   // 1. Fetch Users Roster
   const { data: interns = [], isLoading: isLoadingRoster } = useQuery({
@@ -132,7 +145,66 @@ export const InternsScreen: React.FC = () => {
     },
   });
 
+  // Bulk create mutation (PDF Page 2)
+  const bulkCreateMutation = useMutation({
+    mutationFn: async () => {
+      const emailList = bulkEmailsText
+        .split(/[\n,;]+/)
+        .map((e) => e.trim().toLowerCase())
+        .filter((e) => Boolean(e) && e.includes('@'));
+      if (emailList.length === 0) {
+        throw new Error('Please enter at least one valid email address.');
+      }
+
+      return apiRequest('/users/bulk', {
+        method: 'POST',
+        body: JSON.stringify({
+          emails: emailList,
+          internType: bulkInternType,
+          paidInternId: bulkInternType === INTERN_TYPES.UNPAID ? bulkMentorId || undefined : undefined,
+        }),
+      });
+    },
+    onSuccess: (data: any) => {
+      showToast({ type: 'success', title: 'Batch Interns Created', message: data.message });
+      setIsBulkModalOpen(false);
+      setBulkEmailsText('');
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+    },
+    onError: (err: any) => {
+      showToast({ type: 'error', title: 'Batch Creation Failed', message: err.message });
+    },
+  });
+
+  // Confirm marksheet mutation (PDF Page 6)
+  const confirmMarksheetMutation = useMutation({
+    mutationFn: async (internId: string) => {
+      return apiRequest(`/users/${internId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ marksheetConfirmed: true }),
+      });
+    },
+    onSuccess: () => {
+      showToast({
+        type: 'success',
+        title: 'Marksheet Confirmed',
+        message: 'Academic marksheet percentage officially confirmed for Level 2 Certificate eligibility.',
+      });
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+    },
+    onError: (err: any) => {
+      showToast({ type: 'error', title: 'Confirmation Failed', message: err.message });
+    },
+  });
+
   const filteredInterns = interns.filter((intern) => {
+    if (activeFilter === 'managers') {
+      return (
+        intern.role === USER_ROLES.ADMIN ||
+        intern.role === USER_ROLES.MANAGER ||
+        intern.role === USER_ROLES.LEAD
+      );
+    }
     if (activeFilter === 'paid') return intern.role === USER_ROLES.PAID_INTERN;
     if (activeFilter === 'unpaid') return intern.role === USER_ROLES.UNPAID_INTERN;
     return true;
@@ -144,112 +216,145 @@ export const InternsScreen: React.FC = () => {
 
   const canInvite =
     currentUser?.role === USER_ROLES.ADMIN ||
+    currentUser?.role === USER_ROLES.MANAGER ||
     currentUser?.role === USER_ROLES.LEAD ||
-    currentUser?.role === USER_ROLES.PAID_INTERN;
+    currentUser?.role === USER_ROLES.PAID_INTERN ||
+    currentUser?.role === USER_ROLES.UNPAID_INTERN;
 
   const roleOptions =
     currentUser?.role === USER_ROLES.ADMIN
       ? [
-          { value: USER_ROLES.ADMIN, label: 'Admin (Hard limit: 5)' },
-          { value: USER_ROLES.LEAD, label: 'Co-Admin / Team Lead' },
-          { value: USER_ROLES.PAID_INTERN, label: 'Core Intern (Paid)' },
-          { value: USER_ROLES.UNPAID_INTERN, label: 'Unpaid Intern' },
+          { value: USER_ROLES.ADMIN, label: 'Super Admin (Limit: 5)' },
+          { value: USER_ROLES.MANAGER, label: 'Manager' },
+          { value: USER_ROLES.LEAD, label: 'Team Lead' },
+          { value: USER_ROLES.PAID_INTERN, label: 'Intern (Paid Track)' },
+          { value: USER_ROLES.UNPAID_INTERN, label: 'Intern (Unpaid Track)' },
+        ]
+      : currentUser?.role === USER_ROLES.MANAGER
+      ? [
+          { value: USER_ROLES.LEAD, label: 'Team Lead' },
+          { value: USER_ROLES.PAID_INTERN, label: 'Intern (Paid Track)' },
+          { value: USER_ROLES.UNPAID_INTERN, label: 'Intern (Unpaid Track)' },
         ]
       : currentUser?.role === USER_ROLES.LEAD
       ? [
-          { value: USER_ROLES.PAID_INTERN, label: 'Core Intern (Paid)' },
-          { value: USER_ROLES.UNPAID_INTERN, label: 'Unpaid Intern' },
+          { value: USER_ROLES.PAID_INTERN, label: 'Intern (Paid Track)' },
+          { value: USER_ROLES.UNPAID_INTERN, label: 'Intern (Unpaid Track)' },
         ]
       : [
-          // Core intern can only invite unpaid interns auto-paired to them
-          { value: USER_ROLES.UNPAID_INTERN, label: 'Unpaid Intern (Auto-paired to you)' },
+          { value: USER_ROLES.UNPAID_INTERN, label: 'Intern (Unpaid Track)' },
         ];
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-16">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="space-y-5 max-w-7xl mx-auto pb-16">
+      {/* SMRU Institutional Executive Header Banner */}
+      <header className="min-w-0 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-card border border-line/70 bg-linear-to-r from-surface via-surface to-indigo-50/25 p-4 sm:p-5 shadow-card">
         <div>
-          <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-            Institutional Roster & Invites
-          </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl sm:text-2xl font-display font-bold text-ink tracking-tight">
+              Institutional Roster & Invites
+            </h1>
+            <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-accent-50 border border-accent-200/80 px-2.5 py-0.5 text-xs font-semibold text-accent-800">
+              <span className="size-1.5 rounded-full bg-accent-500 animate-pulse" />
+              Active Cohort
+            </span>
+          </div>
+          <p className="mt-1 text-xs sm:text-sm text-ink-soft">
             Manage cohort personnel, send single-use invitation links, and review level progression.
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
           {canInvite && (
-            <Button
-              size="sm"
-              onClick={() => {
-                setGeneratedInviteLink(null);
-                setIsInviteModalOpen(true);
-              }}
-              leftIcon={<UserPlus className="w-4 h-4" />}
-            >
-              Invite Member
-            </Button>
+            <>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setGeneratedInviteLink(null);
+                  setIsInviteModalOpen(true);
+                }}
+                leftIcon={<UserPlus className="size-4" />}
+              >
+                Invite Member
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => setIsBulkModalOpen(true)}
+                leftIcon={<Users className="size-4" />}
+              >
+                Batch Add Interns
+              </Button>
+            </>
           )}
 
-          <div className="inline-flex p-1 bg-slate-200/70 dark:bg-slate-800 rounded-lg text-xs font-semibold">
+          <div className="inline-flex p-1 bg-tint rounded-control border border-line text-xs font-semibold">
             <button
               type="button"
               onClick={() => setActiveTab('roster')}
-              className={`px-3 py-1.5 rounded-md transition-colors ${
+              className={cn(
+                'px-3 py-1.5 rounded-control transition-colors cursor-pointer',
                 activeTab === 'roster'
-                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
+                  ? 'bg-navy-800 text-white shadow-xs'
+                  : 'text-ink-soft hover:text-navy-800'
+              )}
             >
               Active Roster ({interns.length})
             </button>
             <button
               type="button"
               onClick={() => setActiveTab('invites')}
-              className={`px-3 py-1.5 rounded-md transition-colors ${
+              className={cn(
+                'px-3 py-1.5 rounded-control transition-colors cursor-pointer',
                 activeTab === 'invites'
-                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
+                  ? 'bg-navy-800 text-white shadow-xs'
+                  : 'text-ink-soft hover:text-navy-800'
+              )}
             >
               Pending Invites ({invites.filter((inv: any) => inv.status === 'pending').length})
             </button>
           </div>
         </div>
-      </div>
+      </header>
 
       {activeTab === 'roster' && (
         <>
           {/* Filter Pills */}
           <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">View:</span>
-            {(['all', 'paid', 'unpaid'] as const).map((filter) => (
+            <span className="text-xs font-semibold text-ink-soft">View:</span>
+            {(['all', 'managers', 'paid', 'unpaid'] as const).map((filter) => (
               <button
                 key={filter}
                 type="button"
                 onClick={() => setActiveFilter(filter)}
-                className={`px-3 py-1 rounded-lg text-xs font-semibold capitalize transition-colors ${
+                className={cn(
+                  'px-3 py-1 rounded-control text-xs font-semibold capitalize transition-colors cursor-pointer',
                   activeFilter === filter
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
-                }`}
+                    ? 'bg-navy-800 text-white shadow-xs'
+                    : 'bg-surface border border-line text-ink-soft hover:bg-tint hover:text-navy-800'
+                )}
               >
-                {filter === 'all' ? 'All Roles' : filter === 'paid' ? 'Core (Paid)' : 'Unpaid Interns'}
+                {filter === 'all'
+                  ? 'All Roles'
+                  : filter === 'managers'
+                  ? 'Leadership & Management'
+                  : filter === 'paid'
+                  ? 'Core (Paid)'
+                  : 'Unpaid Interns'}
               </button>
             ))}
           </div>
 
           {/* Interns Table */}
-          <Card padding="none" className="overflow-hidden">
+          <Card padding="none" className="overflow-hidden border-t-2 border-t-navy-800">
             {isLoadingRoster ? (
-              <div className="py-12 text-center text-xs text-slate-400 animate-pulse">
+              <div className="py-12 text-center text-xs text-ink-faint animate-pulse">
                 Loading official roster...
               </div>
             ) : filteredInterns.length === 0 ? (
               <div className="p-8">
                 <EmptyState
-                  icon={<Users className="w-8 h-8" />}
+                  icon={<Users className="size-8" />}
                   title="No team members match this filter"
                   description="When team members accept invites, their records and monthly levels will appear here."
                   actionLabel={canInvite ? 'Invite New Member' : undefined}
@@ -260,7 +365,7 @@ export const InternsScreen: React.FC = () => {
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
-                    <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider text-[11px]">
+                    <tr className="border-b border-line bg-canvas text-ink-faint font-semibold uppercase tracking-wider text-[11px]">
                       <th className="py-3 px-4">Name</th>
                       <th className="py-3 px-4">Role</th>
                       <th className="py-3 px-4">Assigned Mentor</th>
@@ -269,63 +374,66 @@ export const InternsScreen: React.FC = () => {
                       <th className="py-3 px-4">Marksheet</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  <tbody className="divide-y divide-line">
                     {filteredInterns.map((intern) => {
                       const isPaid = intern.role === USER_ROLES.PAID_INTERN;
                       const isUnpaid = intern.role === USER_ROLES.UNPAID_INTERN;
 
                       return (
-                        <tr key={intern.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition-colors">
-                          <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white flex items-center gap-2.5">
-                            <div className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-bold flex items-center justify-center text-[10px]">
-                              {intern.name
-                                .split(' ')
-                                .map((n: string) => n[0])
-                                .join('')}
-                            </div>
+                        <tr key={intern.id} className="hover:bg-tint transition-colors">
+                          <td className="py-3.5 px-4 font-bold text-ink flex items-center gap-2.5">
+                            <Avatar name={intern.name} size="sm" />
                             <div>
-                              <span>{intern.name}</span>
-                              <span className="block text-[10px] text-slate-400 font-normal">{intern.email}</span>
+                              <span className="font-semibold text-ink">{intern.name}</span>
+                              <span className="block text-[10px] text-ink-faint font-normal">{intern.email}</span>
                             </div>
                           </td>
 
                           <td className="py-3.5 px-4">
                             <Badge
-                              variant={
+                              tone={
                                 intern.role === USER_ROLES.ADMIN
-                                  ? 'primary'
+                                  ? 'navy'
+                                  : intern.role === USER_ROLES.MANAGER
+                                  ? 'amber'
                                   : intern.role === USER_ROLES.LEAD
-                                  ? 'info'
+                                  ? 'sky'
                                   : isPaid
-                                  ? 'success'
-                                  : 'purple'
+                                  ? 'mint'
+                                  : 'violet'
                               }
                             >
-                              {intern.role.replace('_', ' ').toUpperCase()}
+                              {intern.role === USER_ROLES.ADMIN
+                                ? 'Super Admin'
+                                : intern.role === USER_ROLES.MANAGER
+                                ? 'Manager'
+                                : intern.role === USER_ROLES.LEAD
+                                ? 'Team Lead'
+                                : isPaid
+                                ? 'Intern · Paid'
+                                : 'Intern · Unpaid'}
                             </Badge>
                           </td>
 
-                          <td className="py-3.5 px-4 text-slate-600 dark:text-slate-400 font-medium">
-                            {isPaid
-                              ? 'Core team'
-                              : intern.pairedPaidInternName || 'Pending mentor pairing'}
+                          <td className="py-3.5 px-4 text-ink-soft font-medium">
+                            {intern.pairedPaidInternName || (isPaid ? 'Lead / Independent' : 'Assigned Mentor')}
                           </td>
 
                           <td className="py-3.5 px-4">
-                            {isUnpaid ? (
+                            {isPaid || isUnpaid ? (
                               <div className="flex items-center gap-2">
-                                <div className="w-16 h-2 bg-slate-100 dark:bg-slate-800 rounded-sm overflow-hidden">
+                                <div className="w-16 h-2 bg-canvas rounded-full overflow-hidden border border-line">
                                   <div
-                                    style={{ width: `${((intern.currentLevel || 1) / 15) * 100}%` }}
-                                    className="h-full bg-blue-600 rounded-sm"
+                                    style={{ width: `${Math.min(100, ((intern.currentLevel || 1) / 15) * 100)}%` }}
+                                    className="h-full bg-navy-800 rounded-full"
                                   />
                                 </div>
-                                <span className="font-semibold text-slate-700 dark:text-slate-300">
+                                <span className="font-semibold text-ink">
                                   {intern.currentLevel || 1}/15
                                 </span>
                               </div>
                             ) : (
-                              <span className="text-slate-400 font-semibold">—</span>
+                              <span className="text-ink-faint font-semibold">—</span>
                             )}
                           </td>
 
@@ -337,17 +445,33 @@ export const InternsScreen: React.FC = () => {
 
                           <td className="py-3.5 px-4">
                             {isPaid ? (
-                              intern.marksheetPercentage && intern.marksheetPercentage >= 80 ? (
-                                <span className="text-emerald-700 dark:text-emerald-400 font-semibold">
-                                  {intern.marksheetPercentage}% confirmed
-                                </span>
-                              ) : intern.marksheetPercentage !== undefined && intern.marksheetPercentage !== null ? (
-                                <span className="text-amber-700 dark:text-amber-400 font-semibold">
-                                  {intern.marksheetPercentage}% below 80%
-                                </span>
-                              ) : (
-                                <span className="text-slate-400">Pending upload</span>
-                              )
+                              <div className="flex items-center gap-2">
+                                {intern.marksheetConfirmed ? (
+                                  <Badge variant="success" size="sm">
+                                    {intern.marksheetPercentage}% Confirmed
+                                  </Badge>
+                                ) : intern.marksheetPercentage !== undefined && intern.marksheetPercentage !== null ? (
+                                  <div className="flex items-center gap-1.5">
+                                    <Badge variant={intern.marksheetPercentage >= 80 ? 'warning' : 'danger'} size="sm">
+                                      {intern.marksheetPercentage}% Pending
+                                    </Badge>
+                                    {(currentUser?.role === USER_ROLES.ADMIN ||
+                                      currentUser?.role === USER_ROLES.MANAGER ||
+                                      currentUser?.role === USER_ROLES.LEAD) && (
+                                      <Button
+                                        size="xs"
+                                        variant="outline"
+                                        isLoading={confirmMarksheetMutation.isPending}
+                                        onClick={() => confirmMarksheetMutation.mutate(intern.id)}
+                                      >
+                                        Confirm
+                                      </Button>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-slate-400">Pending upload</span>
+                                )}
+                              </div>
                             ) : (
                               <span className="text-slate-400">Not required</span>
                             )}
@@ -554,7 +678,7 @@ export const InternsScreen: React.FC = () => {
             <div className="space-y-4">
               <Input
                 label="Full Name"
-                placeholder="Dr. Rajesh / Surya"
+                placeholder="Full Name (e.g. Dr. Rajesh)"
                 value={inviteName}
                 onChange={(e) => setInviteName(e.target.value)}
               />
@@ -587,6 +711,75 @@ export const InternsScreen: React.FC = () => {
               </div>
             </div>
           )}
+        </Modal>
+      )}
+
+      {/* Batch Add Interns Modal (PDF Page 2) */}
+      {isBulkModalOpen && (
+        <Modal
+          isOpen={isBulkModalOpen}
+          onClose={() => setIsBulkModalOpen(false)}
+          title="Batch Add Interns at Once"
+        >
+          <div className="space-y-4">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Create multiple interns simultaneously per Central Office rules. Enter one email per line or separate by commas. Default credentials and welcome instructions will be dispatched.
+            </p>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Intern Email Addresses
+              </label>
+              <Textarea
+                rows={5}
+                placeholder={"intern1@smru.edu.in\nintern2@smru.edu.in\nintern3@smru.edu.in"}
+                value={bulkEmailsText}
+                onChange={(e) => setBulkEmailsText(e.target.value)}
+              />
+            </div>
+
+            <Select
+              label="Intern Tier"
+              value={bulkInternType}
+              onChange={(e) => setBulkInternType(e.target.value)}
+              options={
+                currentUser?.role === USER_ROLES.PAID_INTERN
+                  ? [{ value: INTERN_TYPES.UNPAID, label: 'Unpaid Intern (Auto-paired to you)' }]
+                  : [
+                      { value: INTERN_TYPES.UNPAID, label: 'Unpaid Intern (Foundational - 15 Levels)' },
+                      { value: INTERN_TYPES.PAID, label: 'Core Intern (Paid Tier)' },
+                    ]
+              }
+            />
+
+            {bulkInternType === INTERN_TYPES.UNPAID && currentUser?.role !== USER_ROLES.PAID_INTERN && (
+              <Select
+                label="Assigned Core Intern (Mentor)"
+                value={bulkMentorId}
+                onChange={(e) => setBulkMentorId(e.target.value)}
+                options={[
+                  { value: '', label: 'Unassigned / Central Office Lead' },
+                  ...interns
+                    .filter((u: any) => u.role === USER_ROLES.PAID_INTERN)
+                    .map((p: any) => ({ value: p.id, label: `${p.name} (Core Intern)` })),
+                ]}
+              />
+            )}
+
+            <div className="pt-2 flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setIsBulkModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                isLoading={bulkCreateMutation.isPending}
+                onClick={() => bulkCreateMutation.mutate()}
+                leftIcon={<Users className="w-4 h-4" />}
+              >
+                Create Interns
+              </Button>
+            </div>
+          </div>
         </Modal>
       )}
     </div>
