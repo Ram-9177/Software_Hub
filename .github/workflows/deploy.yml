@@ -1,4 +1,4 @@
-name: Deploy Command Center to GitHub Pages
+name: Deploy Software Hub to GitHub Pages
 
 on:
   push:
@@ -37,9 +37,12 @@ jobs:
         run: npm run build --workspace=@command-center/shared
 
       - name: Build Web Application
-        run: npm run build --workspace=@command-center/web
+        run: |
+          npm run build --workspace=@command-center/web
+          cp apps/web/dist/index.html apps/web/dist/404.html
         env:
           NODE_ENV: production
+          VITE_BASE_PATH: '/Software_Hub/'
 
       - name: Setup GitHub Pages
         uses: actions/configure-pages@v5
